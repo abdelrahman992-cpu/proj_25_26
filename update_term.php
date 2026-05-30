@@ -17,7 +17,7 @@ include("header.php");
 include("post.php");
     include("validation.php");
  mysqli_query($connect,"SET NAMES 'utf8'");
-$sql="select * from terms";
+$sql = "SELECT * FROM terms ORDER BY id DESC"; // لعرض الأحدث أولاً
 $query=mysqli_query($connect,$sql);
 $num=mysqli_num_rows($query);
 ?>

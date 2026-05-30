@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("connection.php");
 include_once("config.php");
+//include_once("auto_api_import.php");
 
 header("Cache-Control: no-store, no-cache, must-revalidate");
 header("Pragma: no-cache");
