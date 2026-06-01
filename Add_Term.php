@@ -1,5 +1,8 @@
 <?php
 include("conn.php");
+// زيادة وقت تنفيذ السكربت لضمان اكتمال الترجمة (دقيقتان)
+set_time_limit(120);
+
 if (empty($_SESSION['username'])) {
     header("Location: ask_to_sign_in.php");
     exit;
@@ -7,10 +10,9 @@ if (empty($_SESSION['username'])) {
 include("header.php");
 include("validation.php");
 
-// 1. دالة الترجمة البرمجية (تستخدم Google Translate API المجاني)
+// 1. دالة الترجمة البرمجية من الإنجليزية للعربية
 function translate_to_arabic($text) {
     if (empty($text)) return "";
-    // تقسيم النص الطويل لأن API الترجمة له حد أقصى في الطلب الواحد
     $url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=" . urlencode($text);
     
     $ch = curl_init();
@@ -30,7 +32,7 @@ function translate_to_arabic($text) {
     return $translated_text;
 }
 
-// 2. دالة جلب البيانات من NCBI
+// 2. دالة جلب البيانات عبر cURL
 function fetch_from_ncbi($url) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
@@ -43,10 +45,12 @@ function fetch_from_ncbi($url) {
 
 $message = "";
 
-// --- قسم استيراد الهيموفيليا ---
+// --- أولاً: استيراد أبحاث الهيموفيليا ---
 if (isset($_POST['import_hemophilia'])) {
     $query = "Hemophilia Gene Therapy";
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=".urlencode($query)."&retmax=3&retmode=json";
+    $random_start = rand(0, 50); // تخطي عدد عشوائي من النتائج لجلب أبحاث جديدة
+    
+    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=".urlencode($query)."&retmax=3&retstart=$random_start&retmode=json";
     
     $search_res = fetch_from_ncbi($api_search);
     $search_data = json_decode($search_res, true);
@@ -68,13 +72,14 @@ if (isset($_POST['import_hemophilia'])) {
             }
             $abstract_en = implode(" ", $abstract_parts);
 
-            // عملية الترجمة قبل الحفظ
+            // ترجمة البيانات
             $title_ar = translate_to_arabic($title_en);
             $abstract_ar = translate_to_arabic($abstract_en);
 
             $clean_title = mysqli_real_escape_string($connect, $title_ar);
             $clean_abstract = mysqli_real_escape_string($connect, $abstract_ar);
 
+            // منع التكرار بناءً على الـ ID
             $check = mysqli_query($connect, "SELECT id FROM terms WHERE term = 'PMID: $id'");
             if (mysqli_num_rows($check) == 0) {
                 $sql = "INSERT INTO terms (term, trans, defe, picture, status) VALUES ('PMID: $id', '$clean_title', '$clean_abstract', 'pic/ncbi_logo.png', 'approved')";
@@ -82,13 +87,17 @@ if (isset($_POST['import_hemophilia'])) {
             }
         }
     }
-    $message = "<div class='alert alert-success'>تم استيراد وترجمة $count أبحاث عن الهيموفيليا بنجاح!</div>";
+    $message = ($count > 0) ? "<div class='alert alert-success'>تم استيراد وترجمة $count أبحاث هيموفيليا جديدة!</div>" : "<div class='alert alert-warning'>لم يتم العثور على أبحاث جديدة في هذه الصفحة، جرب الضغط مرة أخرى.</div>";
 }
 
-// --- قسم استيراد الجينات العامة ---
+// --- ثانياً: استيراد جينات عشوائية ---
 if (isset($_POST['import_genes'])) {
-    $query = "human[organism] AND protein_coding[properties]";
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=".urlencode($query)."&retmax=3&retmode=json";
+    // قائمة بكلمات بحث مختلفة لضمان التنوع
+    $topics = ['Human Gene', 'Cancer Biology', 'Neural Protein', 'Genetic Mutation'];
+    $query = $topics[array_rand($topics)]; 
+    $random_start = rand(0, 100);
+
+    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=".urlencode($query)."&retmax=3&retstart=$random_start&retmode=json";
     
     $search_res = fetch_from_ncbi($api_search);
     $search_data = json_decode($search_res, true);
@@ -103,9 +112,8 @@ if (isset($_POST['import_genes'])) {
         if (isset($summary_data['result'][$id])) {
             $gene_name = $summary_data['result'][$id]['name'];
             $gene_desc_en = $summary_data['result'][$id]['description'];
-            $gene_summary_en = $summary_data['result'][$id]['summary'] ?? "No summary available";
+            $gene_summary_en = $summary_data['result'][$id]['summary'] ?? "No description available";
 
-            // ترجمة بيانات الجين
             $desc_ar = translate_to_arabic($gene_desc_en);
             $summary_ar = translate_to_arabic($gene_summary_en);
 
@@ -119,10 +127,10 @@ if (isset($_POST['import_genes'])) {
             }
         }
     }
-    $message = "<div class='alert alert-info'>تم استيراد وترجمة $count جينات بشرية بنجاح!</div>";
+    $message = ($count > 0) ? "<div class='alert alert-info'>تم استيراد وترجمة $count جينات جديدة من موضوع ($query)!</div>" : "<div class='alert alert-warning'>لم يتم العثور على جينات جديدة حالياً.</div>";
 }
 
-// إضافة يدوية
+// --- ثالثاً: الإضافة اليدوية ---
 if (isset($_POST['Submit1'])) {
     $term = sanStr($_POST['txt_term']);
     $trans = sanStr($_POST['trans']);
@@ -142,13 +150,14 @@ if (isset($_POST['Submit1'])) {
 <html dir="rtl" lang="ar">
 <head>
     <meta charset="utf-8">
-    <title>إدارة القاموس المترجم</title>
+    <title>إدارة القاموس الذكي المترجم</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/css/bootstrap.min.css">
     <style>
-        body { background-color: #f8f9fa; }
-        .card { box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: none; margin-bottom: 30px; }
-        .btn-import { font-weight: bold; padding: 15px; transition: 0.3s; }
-        .btn-import:hover { transform: translateY(-2px); }
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { border-radius: 15px; border: none; box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
+        .btn-main { padding: 15px; font-weight: bold; border-radius: 10px; transition: all 0.3s ease; }
+        .btn-main:hover { transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .header-title { color: #2c3e50; font-weight: 800; }
     </style>
 </head>
 <body class="container py-5">
@@ -156,58 +165,58 @@ if (isset($_POST['Submit1'])) {
     <?php echo $message; ?>
 
     <div class="text-center mb-5">
-        <h1 class="display-4">🧬 القاموس البيولوجي الذكي</h1>
-        <p class="lead text-muted">استيراد، ترجمة، وتصنيف آلي من NCBI</p>
+        <h1 class="header-title">📋 لوحة تحكم القاموس البيولوجي</h1>
+        <p class="text-secondary">جلب البيانات العلمية من NCBI وترجمتها فورياً</p>
     </div>
 
-    <div class="card bg-white">
-        <div class="card-header bg-dark text-white text-center">⚙️ أدوات الاستيراد والترجمة الآلية</div>
-        <div class="card-body">
-            <form method="post">
-                <div class="row text-center">
-                    <div class="col-md-6 mb-3">
-                        <div class="p-3 border rounded shadow-sm">
-                            <h5>أبحاث الهيموفيليا</h5>
-                            <p class="small text-muted">يجلب الملخصات الكاملة ويترجمها للعربية</p>
-                            <button type="submit" name="import_hemophilia" class="btn btn-danger btn-block btn-import">🩸 استيراد أبحاث الهيموفيليا</button>
+    <div class="row">
+        <div class="col-lg-12 mb-4">
+            <div class="card p-4">
+                <h4 class="mb-4 text-primary">⚡ استيراد تلقائي مترجم</h4>
+                <form method="post">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <button type="submit" name="import_hemophilia" class="btn btn-danger btn-block btn-main">
+                                🩸 جلب أبحاث الهيموفيليا (أجزاء عشوائية)
+                            </button>
+                            <small class="text-muted d-block mt-2">سيقوم النظام بالبحث في أجزاء مختلفة من قاعدة Pubmed في كل مرة.</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <button type="submit" name="import_genes" class="btn btn-info btn-block btn-main">
+                                🧬 جلب جينات عشوائية متنوعة
+                            </button>
+                            <small class="text-muted d-block mt-2">يختار موضوعاً عشوائياً (سرطان، بروتين، جينات) ويترجمه.</small>
                         </div>
                     </div>
-                    <div class="col-md-6 mb-3">
-                        <div class="p-3 border rounded shadow-sm">
-                            <h5>الجينات البشرية</h5>
-                            <p class="small text-muted">يجلب توصيف الجينات ويترجمها للعربية</p>
-                            <button type="submit" name="import_genes" class="btn btn-info btn-block btn-import">🧬 استيراد جينات عامة</button>
-                        </div>
-                    </div>
-                </div>
-            </form>
+                </form>
+            </div>
         </div>
-    </div>
 
-    <div class="card shadow-sm">
-        <div class="card-header bg-success text-white text-center">➕ إضافة مصطلح يدوياً</div>
-        <div class="card-body">
-            <form method="post" enctype="multipart/form-data">
-                <div class="form-row">
-                    <div class="form-group col-md-6">
-                        <label>المصطلح (English):</label>
-                        <input name="txt_term" class="form-control" type="text" required>
+        <div class="col-lg-12">
+            <div class="card p-4">
+                <h4 class="mb-4 text-success">✍️ إضافة مصطلح يدوي</h4>
+                <form method="post" enctype="multipart/form-data">
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label>المصطلح الأصلي (English):</label>
+                            <input name="txt_term" class="form-control" type="text" required>
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label>الترجمة المعتمدة:</label>
+                            <input name="trans" class="form-control" type="text" required>
+                        </div>
                     </div>
-                    <div class="form-group col-md-6">
-                        <label>الترجمة العربية:</label>
-                        <input name="trans" class="form-control" type="text" required>
+                    <div class="form-group">
+                        <label>الشرح العلمي الكامل:</label>
+                        <textarea name="TextArea1" class="form-control" rows="4" required></textarea>
                     </div>
-                </div>
-                <div class="form-group">
-                    <label>الشرح/التعريف:</label>
-                    <textarea name="TextArea1" class="form-control" rows="3" required></textarea>
-                </div>
-                <div class="form-group">
-                    <label>صورة تعبيرية:</label>
-                    <input name="File1" type="file" class="form-control-file">
-                </div>
-                <button name="Submit1" type="submit" class="btn btn-success btn-block">حفظ المصطلح</button>
-            </form>
+                    <div class="form-group">
+                        <label>إرفاق صورة (اختياري):</label>
+                        <input name="File1" type="file" class="form-control-file border p-1 rounded">
+                    </div>
+                    <button name="Submit1" type="submit" class="btn btn-success btn-block btn-main">💾 حفظ المصطلح في القاعدة</button>
+                </form>
+            </div>
         </div>
     </div>
 
