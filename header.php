@@ -193,6 +193,7 @@ function changeLanguage(lang){
 <li class="left"><a href="search_term.php">البحث عن مصطلح</a></li>
 <li class="left"><a href="Del_Term.php">حذف مصطلح</a></li>
 <li class="left"><a href="Edit_Term.php">تعديل مصطلح</a></li>
+<li class="left"><a href="user_history.php"> سجل المصطلحات</a></li>
 <li class="left"><a href="Help.php">مساعدة</a></li>
 
 <li class="right"><a href="https://www.facebook.com"><i class="fab fa-facebook"></i></a></li>
@@ -249,6 +250,7 @@ function changeLanguage(lang){
 <li class="left"><a href="Help.php">مساعدة</a></li>
 <li class="left"><a href="admin_dashboard.php">لوحة التحكم</a></li>
 <li class="left"><a href="approve_terms.php"> موافقة أو رفض</a></li>
+<li class="left"><a href="user_history.php"> سجل المصطلحات</a></li>
 <li class="left"><a href="signout.php">تسجيل الخروج</a></li>
 
 
@@ -298,6 +300,7 @@ function changeLanguage(lang){
 <li class="left"><a href="Del_Term.php">حذف مصطلح</a></li>
 <li class="left"><a href="edit_term.php">تعديل مصطلح</a></li>
 <li class="left"><a href="edit_user.php">تعديل مستخدم</a></li>
+<li class="left"><a href="user_history.php"> سجل المصطلحات</a></li>
 <li class="left"><a href="admin_requests.php">طلب الترقي لمسؤول</a></li>
 <li class="left"><a href="Help.php">مساعدة</a></li>
 <li class="left"><a href="signout.php">تسجيل الخروج</a></li>

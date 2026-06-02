@@ -1,46 +1,45 @@
 <?php
 include("conn.php");
-// زيادة وقت تنفيذ السكربت لضمان اكتمال الترجمة (دقيقتان)
-set_time_limit(120);
 
-if (empty($_SESSION['username'])) {
+// 1. تفعيل السشن
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// إظهار الأخطاء للتصحيح
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+// تحديد متغير الاتصال
+$db = $connect ?? $conn;
+if (!$db) { die("❌ خطأ في الاتصال بقاعدة البيانات"); }
+
+// 2. التحقق من الهوية (بايثون أو مستخدم مسجل)
+$is_python = (isset($_POST['api_key']) && $_POST['api_key'] === 'my_secret_key_123');
+
+if (!$is_python && empty($_SESSION['username'])) {
     header("Location: ask_to_sign_in.php");
     exit;
 }
-include("header.php");
-include("validation.php");
 
-// 1. دالة الترجمة البرمجية من الإنجليزية للعربية
-function translate_to_arabic($text) {
-    if (empty($text)) return "";
-    $url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=" . urlencode($text);
+// --- أولاً: معالجة طلب بايثون (Drug Design) ---
+if ($is_python) {
+    $term   = $_POST['txt_term'] ?? 'N/A';
+    $trans  = $_POST['trans'] ?? $term;
+    $desc   = $_POST['TextArea1'] ?? 'N/A';
+    $smiles = $_POST['smiles_code'] ?? 'N/A';
+    $bot_id = 99; // ID خاص بالبوت
+
+    $sql = "INSERT INTO terms (term, trans, defe, smiles_code, status, user_id, picture) 
+            VALUES (?, ?, ?, ?, 'approved', ?, 'pic/ncbi_logo.png')";
+    $stmt = mysqli_prepare($db, $sql);
+    mysqli_stmt_bind_param($stmt, "ssssi", $term, $trans, $desc, $smiles, $bot_id);
     
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    $response = curl_exec($ch);
-    curl_close($ch);
-    
-    $result = json_decode($response, true);
-    $translated_text = "";
-    if (isset($result[0])) {
-        foreach ($result[0] as $sentence) {
-            $translated_text .= $sentence[0];
-        }
+    if (mysqli_stmt_execute($stmt)) {
+        die("✅ Success");
+    } else {
+        die("❌ MySQL Error: " . mysqli_error($db));
     }
-    return $translated_text;
-}
-
-// 2. دالة جلب البيانات عبر cURL
-function fetch_from_ncbi($url) {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    $res = curl_exec($ch);
-    curl_close($ch);
-    return $res;
 }
 
 $message = "";
@@ -130,91 +129,126 @@ if (isset($_POST['import_genes'])) {
     $message = ($count > 0) ? "<div class='alert alert-info'>تم استيراد وترجمة $count جينات جديدة من موضوع ($query)!</div>" : "<div class='alert alert-warning'>لم يتم العثور على جينات جديدة حالياً.</div>";
 }
 
-// --- ثالثاً: الإضافة اليدوية ---
+// نضع الهيدر وبقية الملفات للمستخدم المتصفح فقط
+include("header.php");
+include("validation.php");
+$message = "";
+
+// --- ثانياً: وظائف الترجمة وجلب البيانات من NCBI (كما هي في كودك) ---
+function translate_to_arabic($text) {
+    if (empty($text)) return "";
+    $url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=" . urlencode($text);
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $response = curl_exec($ch);
+    curl_close($ch);
+    $result = json_decode($response, true);
+    return $result[0][0][0] ?? "";
+}
+
+function fetch_from_ncbi($url) {
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $res = curl_exec($ch);
+    curl_close($ch);
+    return $res;
+}
+
+// --- ثالثاً: معالجة الإضافة اليدوية (Submit1) ---
 if (isset($_POST['Submit1'])) {
-    $term = sanStr($_POST['txt_term']);
-    $trans = sanStr($_POST['trans']);
-    $defe = sanStr($_POST['TextArea1']);
+    $term   = sanStr($_POST['txt_term']);
+    $trans  = sanStr($_POST['trans']);
+    $desc   = sanStr($_POST['TextArea1']);
+    $smiles = $_POST['smiles_code'] ?? 'N/A';
+    $user_id = $_SESSION['user_id'];
+    
+    // تحديد الحالة بناءً على الرتبة
+    $status = ($_SESSION['role'] === 'admin') ? 'approved' : 'pending';
+
+    // معالجة الصورة
     $picture = "pic/ncbi_logo.png";
     if (!empty($_FILES['File1']['name'])) {
         $file = time() . "_" . $_FILES['File1']['name'];
         move_uploaded_file($_FILES['File1']['tmp_name'], 'pic/' . $file);
         $picture = "pic/" . $file;
     }
-    mysqli_query($connect, "INSERT INTO terms (term, trans, defe, picture, status) VALUES ('$term', '$trans', '$defe', '$picture', 'approved')");
-    $message = "<div class='alert alert-success'>تمت الإضافة يدوياً بنجاح.</div>";
+
+    $sql = "INSERT INTO terms (term, trans, defe, smiles_code, picture, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    $stmt = mysqli_prepare($db, $sql);
+    mysqli_stmt_bind_param($stmt, "ssssssi", $term, $trans, $desc, $smiles, $picture, $status, $user_id);
+    
+    if (mysqli_stmt_execute($stmt)) {
+        if ($_SESSION['role'] === 'admin') {
+            $message = "<div class='alert alert-success'>✅ أضيف بنجاح كأدمن!</div>";
+        } else {
+            $message = "<div class='alert alert-info'>⏳ تم الإرسال وبانتظار مراجعة الأدمن.</div>";
+        }
+    } else {
+        $message = "<div class='alert alert-danger'>خطأ: " . mysqli_error($db) . "</div>";
+    }
 }
+
+// (أكواد استيراد الهيموفيليا والجينات تبقى هنا كما هي مع التأكد من إضافة $user_id لها)
 ?>
 
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
     <meta charset="utf-8">
-    <title>إدارة القاموس الذكي المترجم</title>
+    <title>إدارة القاموس الذكي</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/css/bootstrap.min.css">
-    <style>
-        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .card { border-radius: 15px; border: none; box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
-        .btn-main { padding: 15px; font-weight: bold; border-radius: 10px; transition: all 0.3s ease; }
-        .btn-main:hover { transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        .header-title { color: #2c3e50; font-weight: 800; }
-    </style>
 </head>
 <body class="container py-5">
 
     <?php echo $message; ?>
 
     <div class="text-center mb-5">
-        <h1 class="header-title">📋 لوحة تحكم القاموس البيولوجي</h1>
-        <p class="text-secondary">جلب البيانات العلمية من NCBI وترجمتها فورياً</p>
+        <h1>📋 لوحة تحكم القاموس البيولوجي</h1>
     </div>
 
     <div class="row">
         <div class="col-lg-12 mb-4">
-            <div class="card p-4">
-                <h4 class="mb-4 text-primary">⚡ استيراد تلقائي مترجم</h4>
+            <div class="card shadow p-4">
                 <form method="post">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <button type="submit" name="import_hemophilia" class="btn btn-danger btn-block btn-main">
-                                🩸 جلب أبحاث الهيموفيليا (أجزاء عشوائية)
-                            </button>
-                            <small class="text-muted d-block mt-2">سيقوم النظام بالبحث في أجزاء مختلفة من قاعدة Pubmed في كل مرة.</small>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <button type="submit" name="import_genes" class="btn btn-info btn-block btn-main">
-                                🧬 جلب جينات عشوائية متنوعة
-                            </button>
-                            <small class="text-muted d-block mt-2">يختار موضوعاً عشوائياً (سرطان، بروتين، جينات) ويترجمه.</small>
-                        </div>
-                    </div>
+                    <button type="submit" name="import_hemophilia" class="btn btn-danger m-1">🩸 جلب أبحاث الهيموفيليا</button>
+                    <button type="submit" name="import_genes" class="btn btn-info m-1">🧬 جلب جينات عشوائية</button>
                 </form>
             </div>
         </div>
 
         <div class="col-lg-12">
-            <div class="card p-4">
-                <h4 class="mb-4 text-success">✍️ إضافة مصطلح يدوي</h4>
+            <div class="card shadow p-4">
+                <h4 class="text-success mb-3">✍️ إضافة مصطلح يدوي</h4>
                 <form method="post" enctype="multipart/form-data">
                     <div class="form-row">
                         <div class="form-group col-md-6">
-                            <label>المصطلح الأصلي (English):</label>
+                            <label>المصطلح (English):</label>
                             <input name="txt_term" class="form-control" type="text" required>
                         </div>
                         <div class="form-group col-md-6">
-                            <label>الترجمة المعتمدة:</label>
+                            <label>الترجمة:</label>
                             <input name="trans" class="form-control" type="text" required>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>الشرح العلمي الكامل:</label>
-                        <textarea name="TextArea1" class="form-control" rows="4" required></textarea>
+                        <label>الشرح العلمي:</label>
+                        <textarea name="TextArea1" class="form-control" rows="3" required></textarea>
                     </div>
-                    <div class="form-group">
-                        <label>إرفاق صورة (اختياري):</label>
-                        <input name="File1" type="file" class="form-control-file border p-1 rounded">
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label>SMILES Code:</label>
+                            <input name="smiles_code" class="form-control" type="text">
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label>الصورة:</label>
+                            <input name="File1" type="file" class="form-control-file border p-1 rounded">
+                        </div>
                     </div>
-                    <button name="Submit1" type="submit" class="btn btn-success btn-block btn-main">💾 حفظ المصطلح في القاعدة</button>
+                    <button name="Submit1" type="submit" class="btn btn-success btn-block">💾 حفظ في القاعدة</button>
                 </form>
             </div>
         </div>
