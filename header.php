@@ -192,7 +192,7 @@ function changeLanguage(lang){
 
 <li class="left"><a href="search_term.php">البحث عن مصطلح</a></li>
 <li class="left"><a href="Del_Term.php">حذف مصطلح</a></li>
-<li class="left"><a href="Edit_Term.php">تعديل مصطلح</a></li>
+<li class="left"><a href="edit_user.php">تعديل مصطلح</a></li>
 <li class="left"><a href="user_history.php"> سجل المصطلحات</a></li>
 <li class="left"><a href="Help.php">مساعدة</a></li>
 
@@ -244,7 +244,7 @@ function changeLanguage(lang){
 
 <li class="left"><a href="Del_Term.php">حذف مصطلح</a></li>
 <li class="left"><a href="edit_term.php">تعديل مصطلح</a></li>
-<li class="left"><a href="Edit_user.php">تعديل مستخدم</a></li>
+<li class="left"><a href="edit_user.php">تعديل مستخدم</a></li>
 
 <li class="left"><a href="Help.php">مساعدة</a></li>
 <li class="left"><a href="admin_dashboard.php">لوحة التحكم</a></li>

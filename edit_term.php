@@ -1,149 +1,189 @@
 <?php
-include("conn.php");
-include("validation.php"); 
+ob_start();
+session_start();
+include_once("conn.php");
+include_once("validation.php"); 
+include_once("api.php"); // يحتوي على الدوال المساعدة
 
-if (empty($_SESSION['username'])) {
-    header("Location: ask_to_sign_in.php");
-    exit;
-}
-/*
-if($_SESSION['role']==="user"){
-require_once("conn.php");
-require_once("header.php");
-    require_once("post.php");
- echo("أنت لست مسؤل");
-    exit;
-}
-*/
-include("header.php");
+$db = $connect ?? $conn;
+$message = "";
 
-// 1. معالجة التحديث ليشمل عمود smiles_code
-if(isset($_POST['Submit2'])) {
-    $iddata = sanStr($_POST['iddata']);
-    $terma = sanStr($_POST['txt_term']);
+// --- 1. معالج التعديل السريع (تغيير الحالة فقط) ---
+// يعمل عند الضغط على أزرار (تفعيل / تعطيل) في الجدول
+if (isset($_GET['status_id']) && isset($_GET['new_status'])) {
+    $id = intval($_GET['status_id']);
+    $status = mysqli_real_escape_string($db, $_GET['new_status']);
+
+    $update_sql = "UPDATE terms SET status = '$status' WHERE id = $id";
+    
+    if (mysqli_query($db, $update_sql)) {
+        echo "<script>alert('تم تحديث حالة المصطلح بنجاح!'); window.location.href='edit_term.php';</script>";
+        exit;
+    } else {
+        die("خطأ في تحديث الحالة: " . mysqli_error($db));
+    }
+}
+
+// --- 2. معالج التعديل الكامل (نموذج التعديل) ---
+// يعمل عند الضغط على زر "حفظ التغييرات" في النموذج الأسفل
+if (isset($_POST['Submit2'])) {
+    $iddata = intval($_POST['iddata']); // المعرف القادم من الحقل المخفي
+    $terma  = sanStr($_POST['txt_term']);
     $transa = sanStr($_POST['trans']);
-    $defea = sanStr($_POST['TextArea1']);
-    $smilesa = sanStr($_POST['smiles_code']); // استلام الكود الجديد
+    $defea  = sanStr($_POST['TextArea1']);
+    $smilesa = sanStr($_POST['smiles_code']);
     $old_pic = $_POST['pic'];
 
-    if(!empty($_FILES['filedata']['name'])) {
-        if(!is_dir('pic')){ mkdir('pic'); }
-        $fileName = $_FILES['filedata']['name'];
-        $tmpName  = $_FILES['filedata']['tmp_name'];
-        move_uploaded_file($tmpName, 'pic/'.$fileName);
-        $picturea = "pic/" . $fileName;
+    // معالجة رفع الصورة
+    if (!empty($_FILES['filedata']['name'])) {
+        $fileName = time() . "_" . $_FILES['filedata']['name'];
+        if(move_uploaded_file($_FILES['filedata']['tmp_name'], 'pic/' . $fileName)) {
+            $picturea = "pic/" . $fileName;
+        } else {
+            $picturea = $old_pic;
+        }
     } else {
         $picturea = $old_pic;
     }
 
-    mysqli_query($connect, "SET NAMES 'utf8'");
-    // تحديث الاستعلام ليشمل smiles_code
-    $update_sql = "UPDATE terms SET term='$terma', trans='$transa', defe='$defea', picture='$picturea', smiles_code='$smilesa' WHERE id='$iddata'";
-    $update_query = mysqli_query($connect, $update_sql);
+    $sql = "UPDATE terms SET term=?, trans=?, defe=?, picture=?, smiles_code=? WHERE id=?";
+    $stmt = mysqli_prepare($db, $sql);
+    mysqli_stmt_bind_param($stmt, "sssssi", $terma, $transa, $defea, $picturea, $smilesa, $iddata);
 
-    if($update_query) {
-        echo "<script>alert('تم التعديل بنجاح'); window.location.href='edit_term.php';</script>";
+    if (mysqli_stmt_execute($stmt)) {
+        echo "<script>alert('تم تعديل بيانات المصطلح بنجاح'); window.location.href='edit_term.php';</script>";
         exit;
     } else {
-        echo "خطأ في التعديل: " . mysqli_error($connect);
+        die("خطأ في التعديل الكامل: " . mysqli_error($db));
     }
 }
+
+// التحقق من تسجيل الدخول
+if (empty($_SESSION['username'])) {
+    header("Location: ask_to_sign_in.php");
+    exit;
+}
+
+include("header.php");
 ?>
 
-<html dir="rtl">
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
 <head>
-    <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
-    <title>تحديث مصطلح</title>
+    <meta charset="utf-8">
+    <title>إدارة القاموس البيولوجي</title>
     <style>
-        .molecule-img { background: white; border-radius: 8px; padding: 5px; border: 1px solid #444; }
+        .molecule-img { background: white; border-radius: 8px; padding: 5px; border: 1px solid #444; object-fit: contain; }
+        .table-v-align td { vertical-align: middle !important; }
+        .badge-pending { background-color: #ffc107; color: #000; }
+        .badge-approved { background-color: #28a745; color: #fff; }
     </style>
 </head>
-<body>
+<body class="bg-dark text-light">
     <div class="container-fluid text-center mt-4">
-        <h1>🛠️ إدارة وتعديل المصطلحات البيولوجية</h1>
+        <h1 class="mb-4">🛠️ لوحة التحكم في المصطلحات</h1>
+        
         <?php
-        mysqli_query($connect, "SET NAMES 'utf8'");
-     // لجعل الأدمن يعدل فقط على المصطلحات المقبولة أو المعلقة، ويخفي المرفوضة نهائياً:
-$sql = "SELECT * FROM terms WHERE status != 'rejected'";
-        $query = mysqli_query($connect, $sql);
+        // جلب المصطلحات (عرض المقبول والمعلق فقط)
+        $sql = "SELECT * FROM terms WHERE status != 'rejected' ORDER BY id DESC";
+        $query = mysqli_query($db, $sql);
         $num = mysqli_num_rows($query);
-        echo "<h3>إجمالي المصطلحات: <span class='badge badge-info'>$num</span></h3>";
         ?>
+        <h3>المصطلحات النشطة: <span class="badge badge-info"><?php echo $num; ?></span></h3>
 
-        <table class="table table-bordered table-dark table-striped mt-3" dir="rtl">
-            <thead>
-                <tr>
-                    <th>المسلسل</th>
-                    <th>المصطلح</th>
-                    <th>الترجمة</th>
-                    <th>كود SMILES</th>
-                    <th>صورة المركب</th>
-                    <th>الخصائص</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php while($row = mysqli_fetch_array($query)) { 
-                    // منطق عرض الصورة: إذا وجد SMILES نستخدم PubChem، وإلا نستخدم الصورة المخزنة
-                    $smiles = $row['smiles_code'];
-                    $display_img = (!empty($smiles) && $smiles != 'N/A') 
-                        ? "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/" . urlencode($smiles) . "/PNG" 
-                        : $row['picture'];
-                ?>
-                <tr>
-                    <td><?php echo $row['id']; ?></td>
-                    <td><b><?php echo $row['term']; ?></b></td>
-                    <td><?php echo $row['trans']; ?></td>
-                    <td><small><code><?php echo $smiles; ?></code></small></td>
-                    <td><img src="<?php echo $display_img; ?>" class="molecule-img" width="70" height="70"></td>
-                    <td><a href="edit_term.php?id=<?php echo $row['id']; ?>" class="btn btn-warning btn-sm">📝 تعديل</a></td>
-                </tr>
-                <?php } ?>
-            </tbody>
-        </table>
+        <div class="table-responsive mt-4">
+            <table class="table table-bordered table-dark table-striped table-v-align">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>المصطلح</th>
+                        <th>الترجمة</th>
+                        <th>الحالة</th>
+                        <th>العرض المرئي</th>
+                        <th>العمليات السريعة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php while($row = mysqli_fetch_array($query)) { 
+                        $smiles = $row['smiles_code'];
+                        $status_class = ($row['status'] == 'approved') ? 'badge-approved' : 'badge-pending';
+                        
+                        $display_img = (!empty($smiles) && $smiles != 'N/A') 
+                            ? "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/" . urlencode($smiles) . "/PNG" 
+                            : $row['picture'];
+                    ?>
+                    <tr>
+                        <td><?php echo $row['id']; ?></td>
+                        <td><b><?php echo $row['term']; ?></b></td>
+                        <td><?php echo $row['trans']; ?></td>
+                        <td><span class="badge <?php echo $status_class; ?>"><?php echo $row['status']; ?></span></td>
+                        <td><img src="<?php echo $display_img; ?>" class="molecule-img" width="50" height="50"></td>
+                        <td>
+                            <a href="edit_term.php?id=<?php echo $row['id']; ?>#edit-form" class="btn btn-warning btn-sm">📝 تعديل</a>
+
+                            <?php if($row['status'] == 'approved'): ?>
+                                <a href="edit_term.php?status_id=<?php echo $row['id']; ?>&new_status=pending" class="btn btn-outline-secondary btn-sm">⏳ تعطيل</a>
+                            <?php else: ?>
+                                <a href="edit_term.php?status_id=<?php echo $row['id']; ?>&new_status=approved" class="btn btn-outline-success btn-sm">✅ تفعيل</a>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php } ?>
+                </tbody>
+            </table>
+        </div>
 
         <?php
+        // عرض نموذج التعديل فقط عند اختيار ID
         if(isset($_GET['id'])) {
-            $id_to_edit = $_GET['id'];
-            $res = mysqli_query($connect, "SELECT * FROM terms WHERE id='$id_to_edit'");
+            $id_to_edit = intval($_GET['id']);
+            $res = mysqli_query($db, "SELECT * FROM terms WHERE id='$id_to_edit'");
             $data = mysqli_fetch_array($res);
-            
             if($data) {
         ?>
-        <div class="card bg-light text-dark p-4 mt-5 mb-5 shadow" style="max-width: 600px; margin: auto;">
-            <h2>تعديل بيانات: <?php echo $data['term']; ?></h2>
-            <form method="post" action="edit_term.php" enctype="multipart/form-data" class="text-right">
+        <div id="edit-form" class="card bg-light text-dark p-4 mt-5 mb-5 shadow mx-auto" style="max-width: 800px;">
+            <h2 class="text-primary border-bottom pb-2">📝 تعديل بيانات المصطلح</h2>
+            <form method="post" enctype="multipart/form-data" class="text-right mt-3">
                 <input name="iddata" type="hidden" value="<?php echo $data['id']; ?>" />
                 <input name="pic" type="hidden" value="<?php echo $data['picture']; ?>" />
                 
-                <div class="form-group">
-                    <label>المصطلح (English):</label>
-                    <input name="txt_term" type="text" class="form-control" value="<?php echo $data['term']; ?>" required />
-                </div>
-                
-                <div class="form-group">
-                    <label>الترجمة العربية:</label>
-                    <input name="trans" type="text" class="form-control" value="<?php echo $data['trans']; ?>" required />
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>المصطلح الإنجليزي:</label>
+                        <input name="txt_term" type="text" class="form-control" value="<?php echo $data['term']; ?>" required />
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>الترجمة العربية:</label>
+                        <input name="trans" type="text" class="form-control" value="<?php echo $data['trans']; ?>" required />
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label>SMILES Code (لصور المركبات الكيميائية):</label>
-                    <input name="smiles_code" type="text" class="form-control" placeholder="مثال: CN(C)C(=N)N=C(N)N" value="<?php echo $data['smiles_code']; ?>" />
-                    <small class="text-muted">هذا الكود سيقوم بتوليد صورة المركب تلقائياً.</small>
+                    <label>SMILES Code (للمركبات الكيميائية):</label>
+                    <input name="smiles_code" type="text" class="form-control" value="<?php echo $data['smiles_code']; ?>" />
                 </div>
                 
                 <div class="form-group">
-                    <label>التعريف العلمي:</label>
-                    <textarea name="TextArea1" class="form-control" style="height: 100px;" required><?php echo $data['defe']; ?></textarea>
+                    <label>التعريف / الوصف العلمي:</label>
+                    <textarea name="TextArea1" class="form-control" rows="5" required><?php echo $data['defe']; ?></textarea>
                 </div>
                 
-                <div class="form-group text-center">
-                    <label>الصورة الحالية:</label><br>
-                    <img src="<?php echo (!empty($data['smiles_code'])) ? "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/".urlencode($data['smiles_code'])."/PNG" : $data['picture']; ?>" width="100" class="img-thumbnail"><br>
-                    <label class="mt-2">تغيير الصورة يدوياً (اختياري):</label>
-                    <input name="filedata" type="file" class="form-control-file border p-1">
+                <div class="form-row align-items-center bg-white p-3 rounded border">
+                    <div class="form-group col-md-4 text-center">
+                        <label>المعاينة الحالية:</label><br>
+                        <img src="<?php echo $display_img; ?>" width="120" class="img-thumbnail">
+                    </div>
+                    <div class="form-group col-md-8">
+                        <label>تحديث الصورة يدوياً (اختياري):</label>
+                        <input name="filedata" type="file" class="form-control-file border p-1 rounded">
+                        <small class="text-muted">ملاحظة: إذا كان كود SMILES موجوداً، فسيتم استخدامه للعرض تلقائياً.</small>
+                    </div>
                 </div>
                 
-                <button name="Submit2" class="btn btn-success btn-block mt-4" type="submit">✅ حفظ التعديلات النهائية</button>
+                <div class="mt-4">
+                    <button name="Submit2" class="btn btn-success btn-lg btn-block" type="submit">💾 حفظ التعديلات النهائية</button>
+                    <a href="edit_term.php" class="btn btn-secondary btn-block">إلغاء وإغلاق النموذج</a>
+                </div>
             </form>
         </div>
         <?php 

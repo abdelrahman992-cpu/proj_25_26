@@ -8,6 +8,17 @@ if(!empty($_SESSION['user_id'])){
     include("post.php");
 }
 
+$q = mysqli_real_escape_string($connect, $_GET['q']);
+// جلب كافة الحقول التي يحتاجها الجدول
+$sql = "SELECT term, trans, defe, picture, smiles_code FROM terms 
+        WHERE status = 'approved' AND (term LIKE '%$q%' OR trans LIKE '%$q%') LIMIT 20";
+$res = mysqli_query($connect, $sql);
+
+$results = [];
+while ($row = mysqli_fetch_assoc($res)) {
+    $results[] = $row;
+}
+
 ?>
 
 
@@ -27,71 +38,50 @@ if(!empty($_SESSION['user_id'])){
 <div class="container mt-4">
     <h2 class="text-center mb-4">🔍 البحث عن المصطلحات والأدوية</h2>
 
-    <form method="post" action="" class="mb-4">
-        <div class="input-group mb-3" style="max-width: 500px; margin: auto;">
-            <input name="txt_search" type="text" class="form-control" placeholder="اكتب اسم الدواء أو المصطلح هنا..." required>
-            <div class="input-group-append">
-                <input name="submit1" class="btn btn-primary" type="submit" value="بحث">
-            </div>
-        </div>
-    </form>
-
-    <table class="table table-dark table-hover text-center">
-        <thead>
-            <tr>
-                <th>المصطلح</th>
-                <th>الترجمة</th>
-                <th>التعريف</th>
-                <th>صورة المركب</th>
-                <th>SMILES Code</th>
-            </tr>
-        </thead>
-        <tbody>
-
-    <?php
-    if(isset($_POST['submit1']) && !empty($_POST['txt_search'])){
-        $txt_search = $_POST['txt_search'];
-        $search = "%$txt_search%";
-
-        $stmt = $connect->prepare("SELECT * FROM terms WHERE status = 'approved' AND term LIKE ? ORDER BY term ASC");
-        $stmt->bind_param("s", $search);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        if($result->num_rows > 0){
-            while($row = $result->fetch_assoc()){
-                $term = htmlspecialchars($row['term']);
-                $trans = htmlspecialchars($row['trans']);
-                $defe = htmlspecialchars($row['defe']);
-                $smiles = htmlspecialchars($row['smiles_code']);
-                
-                // منطق جلب الصورة من PubChem لو الكود موجود
-                $img_src = (!empty($smiles) && $smiles != 'N/A') 
-                    ? "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/" . urlencode($smiles) . "/PNG" 
-                    : $row['picture'];
-
-                echo "
-                <tr>
-                    <td class='align-middle'><strong>$term</strong></td>
-                    <td class='align-middle'>$trans</td>
-                    <td class='align-middle'><small>$defe</small></td>
-                    <td class='align-middle'>
-                        <img src='$img_src' class='molecule-preview' width='100' height='100' alt='Chemical Structure'>
-                    </td>
-                    <td class='align-middle'>
-                        <div class='smiles-box'>" . ($smiles ?: 'لا يوجد') . "</div>
-                    </td>
-                </tr>";
-            }
-        } else {
-            echo "<tr><td colspan='5' class='text-warning'>لا توجد نتائج تطابق بحثك.</td></tr>";
-        }
-        $stmt->close();
-    }
-    ?>
-        </tbody>
-    </table>
+    <div class="input-group mb-4" style="max-width: 600px; margin: auto;">
+    <input type="text" id="liveSearch" class="form-control form-control-lg" 
+           placeholder="🔍 ابحث عن أي مصطلح أو دواء..." onkeyup="liveFilter()">
 </div>
+
+<table class="table table-dark table-hover text-center" id="searchTable">
+    <tbody id="resultBody">
+        </tbody>
+</table>
+
+<script>
+function liveFilter() {
+    let input = document.getElementById('liveSearch').value;
+    
+    // إذا كان النص أقل من حرفين لا تبحث
+    if (input.length < 1) {
+        document.getElementById('resultBody').innerHTML = '';
+        return;
+    }
+
+    // إرسال طلب للملف الجديد للبحث
+    fetch('search_ajax.php?q=' + encodeURIComponent(input))
+        .then(response => response.json())
+        .then(data => {
+            let html = '';
+            data.forEach(row => {
+                // منطق عرض الصورة
+                let img = (row.smiles_code && row.smiles_code !== 'N/A') 
+                    ? "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/" + encodeURIComponent(row.smiles_code) + "/PNG" 
+                    : row.picture;
+
+                html += `<tr>
+                    <td><strong>${row.term}</strong></td>
+                    <td>${row.trans}</td>
+                    <td><small>${row.defe}</small></td>
+                    <td><img src="${img}" width="80" class="molecule-preview"></td>
+                    <td><div class='smiles-box'>${row.smiles_code || '---'}</div></td>
+                </tr>`;
+            });
+            document.getElementById('resultBody').innerHTML = html;
+        });
+}
+</script>
+
 
 <?php include("footer.php"); ?>
 </body>

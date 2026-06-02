@@ -2,6 +2,7 @@
 session_start();
 include("conn.php");
 include("validation.php");
+include("header.php");
 
 if(isset($_POST['verify_btn'])){
     $input_otp = sanStr($_POST['otp']);
@@ -30,3 +31,5 @@ if(isset($_POST['verify_btn'])){
     <input type="text" name="otp" placeholder="أدخل كود الـ OTP" required>
     <button type="submit" name="verify_btn">تأكيد التغيير</button>
 </form>
+<?php include("footer.php");
+?>
