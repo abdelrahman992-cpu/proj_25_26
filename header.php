@@ -196,8 +196,7 @@ function changeLanguage(lang){
 <li class="left"><a href="user_history.php"> سجل المصطلحات</a></li>
 <li class="left"><a href="Help.php">مساعدة</a></li>
 
-<li class="right"><a href="https://www.facebook.com"><i class="fab fa-facebook"></i></a></li>
-<li class="right"><a href="https://www.twitter.com"><i class="fab fa-twitter-square"></i></a></li>
+
     </ul>
 
 </nav>
@@ -254,8 +253,6 @@ function changeLanguage(lang){
 <li class="left"><a href="signout.php">تسجيل الخروج</a></li>
 
 
-<li class="right"><a href="https://www.facebook.com"><i class="fab fa-facebook"></i></a></li>
-<li class="right"><a href="https://www.twitter.com"><i class="fab fa-twitter-square"></i></a></li>
 
     </ul>
 </nav>
@@ -306,8 +303,7 @@ function changeLanguage(lang){
 <li class="left"><a href="signout.php">تسجيل الخروج</a></li>
 
 
-<li class="right"><a href="https://www.facebook.com"><i class="fab fa-facebook"></i></a></li>
-<li class="right"><a href="https://www.twitter.com"><i class="fab fa-twitter-square"></i></a></li>
+
 
     </ul>
 </nav>
