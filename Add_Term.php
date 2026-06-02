@@ -1,164 +1,111 @@
 <?php
-include("conn.php");
-
-// 1. تفعيل السشن
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-// إظهار الأخطاء للتصحيح
+// منع أي مخرجات قبل الهيد
+ob_start();
+session_start();
+include_once("api.php"); // تأكد من الـ clean داخل api.php كما فعلنا فوق
+ob_clean(); // هذا السطر سيحذف أي "مخلفات" أو مسافات طبعت بالخطأ
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
-// تحديد متغير الاتصال
 $db = $connect ?? $conn;
-if (!$db) { die("❌ خطأ في الاتصال بقاعدة البيانات"); }
+$message = "";
 
-// 2. التحقق من الهوية (بايثون أو مستخدم مسجل)
-$is_python = (isset($_POST['api_key']) && $_POST['api_key'] === 'my_secret_key_123');
+// التحقق من أن الدوال الأساسية محملة
+$functions_ready = function_exists('fetch_from_ncbi') && function_exists('translate_to_arabic');
 
-if (!$is_python && empty($_SESSION['username'])) {
+// --- الجزء الخاص بالبوت (Python API) ---
+$json_input = json_decode(file_get_contents("php://input"), true);
+$data = array_merge($_POST, (array)$json_input);
+// 2. التحقق من الهوية (سواء كان بوت أو مستخدم مسجل دخوله)
+$is_python = (isset($data['api_key']) && $data['api_key'] === 'my_secret_key_123');
+$is_logged_in = !empty($_SESSION['username']);
+
+// السماح بالدخول فقط إذا كان بوت أو مستخدم مسجل
+if (!$is_python && !$is_logged_in) {
+    // إذا كان الطلب قادم من "متصفح" وليس لديه سشن، حوله لتسجيل الدخول
     header("Location: ask_to_sign_in.php");
     exit;
 }
 
-// --- أولاً: معالجة طلب بايثون (Drug Design) ---
-if ($is_python) {
-    $term   = $_POST['txt_term'] ?? 'N/A';
-    $trans  = $_POST['trans'] ?? $term;
-    $desc   = $_POST['TextArea1'] ?? 'N/A';
-    $smiles = $_POST['smiles_code'] ?? 'N/A';
-    $bot_id = 99; // ID خاص بالبوت
 
-    $sql = "INSERT INTO terms (term, trans, defe, smiles_code, status, user_id, picture) 
-            VALUES (?, ?, ?, ?, 'approved', ?, 'pic/ncbi_logo.png')";
+// 1. تحديد نوع الزائر
+// البوت يرسل دائماً api_key، أما المتصفح فيرسل اسم الزر (import_genes)
+
+
+// 2. معالجة طلب البوت (Python)
+if ($is_python) {
+    header('Content-Type: application/json');
+    $term   = $data['term'] ?? 'N/A';
+    $trans  = $data['trans'] ?? 'N/A';
+    $defe   = $data['defe'] ?? 'N/A';
+    $smiles = $data['smiles_code'] ?? 'N/A';
+    $bot_id = 46;
+
+    $sql = "INSERT INTO terms (term, trans, defe, smiles_code, status, user_id, picture) VALUES (?, ?, ?, ?, 'approved', ?, 'pic/ncbi_logo.png')";
     $stmt = mysqli_prepare($db, $sql);
-    mysqli_stmt_bind_param($stmt, "ssssi", $term, $trans, $desc, $smiles, $bot_id);
+    mysqli_stmt_bind_param($stmt, "ssssi", $term, $trans, $defe, $smiles, $bot_id);
     
     if (mysqli_stmt_execute($stmt)) {
-        die("✅ Success");
+        echo json_encode(["status" => "success"]);
     } else {
-        die("❌ MySQL Error: " . mysqli_error($db));
+        echo json_encode(["status" => "error", "message" => mysqli_error($db)]);
     }
+    exit; // إنهاء السكربت للبوت فوراً
 }
 
-$message = "";
 
-// --- أولاً: استيراد أبحاث الهيموفيليا ---
-if (isset($_POST['import_hemophilia'])) {
-    $query = "Hemophilia Gene Therapy";
-    $random_start = rand(0, 50); // تخطي عدد عشوائي من النتائج لجلب أبحاث جديدة
-    
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=".urlencode($query)."&retmax=3&retstart=$random_start&retmode=json";
-    
+// --- زر استيراد الهيموفيليا ---
+if (isset($_POST['import_hemophilia']) && $functions_ready) {
+    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=Hemophilia%20Gene%20Therapy&retmax=3&retmode=json";
     $search_res = fetch_from_ncbi($api_search);
     $search_data = json_decode($search_res, true);
     $id_list = $search_data['esearchresult']['idlist'] ?? [];
     
     $count = 0;
     foreach ($id_list as $id) {
-        $fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=$id&retmode=xml";
-        $fetch_res = fetch_from_ncbi($fetch_url);
-        $xml = simplexml_load_string($fetch_res);
-        
+        $xml_string = fetch_from_ncbi("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=$id&retmode=xml");
+        $xml = @simplexml_load_string($xml_string);
         if ($xml) {
-            $title_en = (string)$xml->PubmedArticle->MedlineCitation->Article->ArticleTitle;
-            $abstract_parts = [];
-            if (isset($xml->PubmedArticle->MedlineCitation->Article->Abstract->AbstractText)) {
-                foreach ($xml->PubmedArticle->MedlineCitation->Article->Abstract->AbstractText as $part) {
-                    $abstract_parts[] = (string)$part;
-                }
-            }
-            $abstract_en = implode(" ", $abstract_parts);
-
-            // ترجمة البيانات
-            $title_ar = translate_to_arabic($title_en);
-            $abstract_ar = translate_to_arabic($abstract_en);
-
-            $clean_title = mysqli_real_escape_string($connect, $title_ar);
-            $clean_abstract = mysqli_real_escape_string($connect, $abstract_ar);
-
-            // منع التكرار بناءً على الـ ID
-            $check = mysqli_query($connect, "SELECT id FROM terms WHERE term = 'PMID: $id'");
-            if (mysqli_num_rows($check) == 0) {
-                $sql = "INSERT INTO terms (term, trans, defe, picture, status) VALUES ('PMID: $id', '$clean_title', '$clean_abstract', 'pic/ncbi_logo.png', 'approved')";
-                if (mysqli_query($connect, $sql)) $count++;
-            }
+            $t_en = (string)$xml->PubmedArticle->MedlineCitation->Article->ArticleTitle;
+            $t_ar = translate_to_arabic($t_en);
+            $term_name = "PMID: $id";
+            
+            $stmt = mysqli_prepare($db, "INSERT IGNORE INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)");
+            $abstract = "Research ID: " . $id; // ملخص مبدئي لتقليل الوقت
+            mysqli_stmt_bind_param($stmt, "sss", $term_name, $t_ar, $abstract);
+            if (mysqli_stmt_execute($stmt)) $count++;
         }
     }
-    $message = ($count > 0) ? "<div class='alert alert-success'>تم استيراد وترجمة $count أبحاث هيموفيليا جديدة!</div>" : "<div class='alert alert-warning'>لم يتم العثور على أبحاث جديدة في هذه الصفحة، جرب الضغط مرة أخرى.</div>";
+    $message = "<div class='alert alert-danger'>🩸 تم استيراد $count أبحاث بنجاح!</div>";
 }
 
-// --- ثانياً: استيراد جينات عشوائية ---
-if (isset($_POST['import_genes'])) {
-    // قائمة بكلمات بحث مختلفة لضمان التنوع
-    $topics = ['Human Gene', 'Cancer Biology', 'Neural Protein', 'Genetic Mutation'];
-    $query = $topics[array_rand($topics)]; 
-    $random_start = rand(0, 100);
-
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=".urlencode($query)."&retmax=3&retstart=$random_start&retmode=json";
-    
-    $search_res = fetch_from_ncbi($api_search);
-    $search_data = json_decode($search_res, true);
+// --- زر استيراد الجينات ---
+if (isset($_POST['import_genes']) && $functions_ready) {
+    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=Human%20Gene&retmax=3&retmode=json";
+    $search_data = json_decode(fetch_from_ncbi($api_search), true);
     $id_list = $search_data['esearchresult']['idlist'] ?? [];
     
     $count = 0;
     foreach ($id_list as $id) {
-        $summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=$id&retmode=json";
-        $summary_res = fetch_from_ncbi($summary_url);
-        $summary_data = json_decode($summary_res, true);
-        
-        if (isset($summary_data['result'][$id])) {
-            $gene_name = $summary_data['result'][$id]['name'];
-            $gene_desc_en = $summary_data['result'][$id]['description'];
-            $gene_summary_en = $summary_data['result'][$id]['summary'] ?? "No description available";
-
-            $desc_ar = translate_to_arabic($gene_desc_en);
-            $summary_ar = translate_to_arabic($gene_summary_en);
-
-            $clean_desc = mysqli_real_escape_string($connect, $desc_ar);
-            $clean_summary = mysqli_real_escape_string($connect, $summary_ar);
-
-            $check = mysqli_query($connect, "SELECT id FROM terms WHERE term = 'Gene: $gene_name'");
-            if (mysqli_num_rows($check) == 0) {
-                mysqli_query($connect, "INSERT INTO terms (term, trans, defe, picture, status) VALUES ('Gene: $gene_name', '$clean_desc', '$clean_summary', 'pic/ncbi_logo.png', 'approved')");
-                $count++;
-            }
+        $summary = json_decode(fetch_from_ncbi("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=$id&retmode=json"), true);
+        if (isset($summary['result'][$id])) {
+            $name = "Gene: " . $summary['result'][$id]['name'];
+            $ar_name = translate_to_arabic($name);
+            $desc = translate_to_arabic($summary['result'][$id]['description'] ?? "No desc");
+            
+            $stmt = mysqli_prepare($db, "INSERT IGNORE INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)");
+            mysqli_stmt_bind_param($stmt, "sss", $name, $ar_name, $desc);
+            if (mysqli_stmt_execute($stmt)) $count++;
         }
     }
-    $message = ($count > 0) ? "<div class='alert alert-info'>تم استيراد وترجمة $count جينات جديدة من موضوع ($query)!</div>" : "<div class='alert alert-warning'>لم يتم العثور على جينات جديدة حالياً.</div>";
+    $message = "<div class='alert alert-info'>🧬 تم جلب $count جينات!</div>";
 }
 
-// نضع الهيدر وبقية الملفات للمستخدم المتصفح فقط
 include("header.php");
+// باقي ملف الـ HTML يكمل هنا كما هو لديك
 include("validation.php");
-$message = "";
 
-// --- ثانياً: وظائف الترجمة وجلب البيانات من NCBI (كما هي في كودك) ---
-function translate_to_arabic($text) {
-    if (empty($text)) return "";
-    $url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=" . urlencode($text);
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    $response = curl_exec($ch);
-    curl_close($ch);
-    $result = json_decode($response, true);
-    return $result[0][0][0] ?? "";
-}
 
-function fetch_from_ncbi($url) {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    $res = curl_exec($ch);
-    curl_close($ch);
-    return $res;
-}
-
-// --- ثالثاً: معالجة الإضافة اليدوية (Submit1) ---
 if (isset($_POST['Submit1'])) {
     $term   = sanStr($_POST['txt_term']);
     $trans  = sanStr($_POST['trans']);
@@ -191,9 +138,84 @@ if (isset($_POST['Submit1'])) {
         $message = "<div class='alert alert-danger'>خطأ: " . mysqli_error($db) . "</div>";
     }
 }
+// --- أولاً: استيراد أبحاث الهيموفيليا ---
+// --- أولاً: استيراد أبحاث الهيموفيليا ---
+if (isset($_POST['import_hemophilia'])) {
+    $query = "Hemophilia Gene Therapy";
+    $random_start = rand(0, 100); 
+    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=".urlencode($query)."&retmax=3&retstart=$random_start&retmode=json";
+    
+    $search_data = json_decode(fetch_from_ncbi($api_search), true);
+    $id_list = $search_data['esearchresult']['idlist'] ?? [];
+    
+    $count = 0;
+    foreach ($id_list as $id) {
+        $fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=$id&retmode=xml";
+        $xml_string = fetch_from_ncbi($fetch_url);
+        $xml = simplexml_load_string($xml_string);
+        
+        if ($xml) {
+            $title_en = (string)$xml->PubmedArticle->MedlineCitation->Article->ArticleTitle;
+            $abstract_en = "";
+            if (isset($xml->PubmedArticle->MedlineCitation->Article->Abstract->AbstractText)) {
+                foreach ($xml->PubmedArticle->MedlineCitation->Article->Abstract->AbstractText as $part) {
+                    $abstract_en .= (string)$part . " ";
+                }
+            }
 
-// (أكواد استيراد الهيموفيليا والجينات تبقى هنا كما هي مع التأكد من إضافة $user_id لها)
+            // الترجمة
+            $title_ar = translate_to_arabic($title_en);
+            $abstract_ar = translate_to_arabic(substr($abstract_en, 0, 1000)); // نترجم أول 1000 حرف لتجنب البطء
+
+            $term_name = "PMID: $id"; // تعريف المتغير قبل الاستخدام
+            $check = mysqli_query($db, "SELECT id FROM terms WHERE term = '$term_name'");
+            
+            if (mysqli_num_rows($check) == 0) {
+                $sql = "INSERT INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)";
+                $stmt = mysqli_prepare($db, $sql);
+                mysqli_stmt_bind_param($stmt, "sss", $term_name, $title_ar, $abstract_ar);
+                if (mysqli_stmt_execute($stmt)) $count++;
+            }
+        }
+    }
+    $message = "<div class='alert alert-danger'>🩸 تم استيراد $count أبحاث هيموفيليا وترجمتها!</div>";
+}
+
+// --- ثانياً: استيراد الجينات العشوائية ---
+if (isset($_POST['import_genes'])) {
+    $topics = ['Human Gene', 'Cancer Biology', 'Genetics'];
+    $query = $topics[array_rand($topics)]; 
+    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=".urlencode($query)."&retmax=3&retmode=json";
+    
+    $search_data = json_decode(fetch_from_ncbi($api_search), true);
+    $id_list = $search_data['esearchresult']['idlist'] ?? [];
+    
+    $count = 0;
+    foreach ($id_list as $id) {
+        $summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=$id&retmode=json";
+        $summary_data = json_decode(fetch_from_ncbi($summary_url), true);
+        
+        if (isset($summary_data['result'][$id])) {
+            $name_en = "Gene: " . $summary_data['result'][$id]['name'];
+            $summary_en = $summary_data['result'][$id]['summary'] ?? "No summary";
+
+            $name_ar = translate_to_arabic($name_en);
+            $summary_ar = translate_to_arabic(substr($summary_en, 0, 1000));
+
+            $check = mysqli_query($db, "SELECT id FROM terms WHERE term = '$name_en'");
+            if (mysqli_num_rows($check) == 0) {
+                $sql = "INSERT INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)";
+                $stmt = mysqli_prepare($db, $sql);
+                mysqli_stmt_bind_param($stmt, "sss", $name_en, $name_ar, $summary_ar);
+                if (mysqli_stmt_execute($stmt)) $count++;
+            }
+        }
+    }
+    $message = "<div class='alert alert-info'>🧬 تم جلب $count جينات جديدة عن ($query)!</div>";
+}
+
 ?>
+
 
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
@@ -223,6 +245,12 @@ if (isset($_POST['Submit1'])) {
         <div class="col-lg-12">
             <div class="card shadow p-4">
                 <h4 class="text-success mb-3">✍️ إضافة مصطلح يدوي</h4>
+                <?php 
+if (isset($_SESSION['api_message'])) {
+    echo "<div class='alert alert-info'>" . $_SESSION['api_message'] . "</div>";
+    unset($_SESSION['api_message']); // حذف الرسالة بعد عرضها لمرة واحدة
+}
+?>
                 <form method="post" enctype="multipart/form-data">
                     <div class="form-row">
                         <div class="form-group col-md-6">
@@ -255,5 +283,27 @@ if (isset($_POST['Submit1'])) {
     </div>
 
     <?php include('footer.php'); ?>
+<script>
+// جلب العدد الحالي عند تحميل الصفحة مباشرة
+let lastCount = <?php 
+    $res = mysqli_query($db, "SELECT COUNT(id) as total FROM terms");
+    $row = mysqli_fetch_assoc($res);
+    echo $row['total']; 
+?>;
+
+function checkNewTerms() {
+    fetch('check_count.php')
+        .then(response => response.text())
+        .then(count => {
+            count = parseInt(count);
+            if (lastCount > 0 && count > lastCount) {
+                alert("🔔 تنبيه: البوت أضاف مصطلحاً جديداً الآن!");
+                location.reload(); 
+            }
+            lastCount = count;
+        });
+}
+setInterval(checkNewTerms, 10000);
+</script>
 </body>
 </html>
