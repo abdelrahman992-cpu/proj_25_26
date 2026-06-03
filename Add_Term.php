@@ -1,16 +1,53 @@
 <?php
-// منع أي مخرجات قبل الهيد
 ob_start();
 session_start();
-include_once("api.php"); // تأكد من الـ clean داخل api.php كما فعلنا فوق
-ob_clean(); // هذا السطر سيحذف أي "مخلفات" أو مسافات طبعت بالخطأ
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
-
+include_once("api.php"); // تأكد من الـ clean داخل api.php كما فعلنا فوق
+include_once("conn.php"); // تأكد من الـ clean داخل api.php كما فعلنا فوق
 $db = $connect ?? $conn;
 $message = "";
+$term    = $_POST['txt_term'] ?? ""; 
+$trans   = $_POST['trans'] ?? "";
+$defe    = $_POST['Text'] ?? ""; // تأكد أن اسم الحقل في الفورم هو 'defe'
+$term_id = $_POST['term_id'] ?? null; // إذا كنت في صفحة تعديل
+$user_id = $_SESSION['user_id'] ?? 1; // قيمة افتراضية للتجربة
 
-// التحقق من أن الدوال الأساسية محملة
+if (isset($_POST['Submit1'])) {
+    $url = 'http://127.0.0.1:8000/terms/';
+    
+    // تأكد من تطابق هذه الأسماء مع ما يتوقعه الـ API (schemas.TermSchema)
+    $data = [
+        'term'    => $_POST['txt_term'] ?? "",
+        'trans'   => $_POST['trans'] ?? "",
+        'defe'    => $_POST['TextArea1'] ?? "", // تم تغييرها لتطابق اسم الـ input
+        'status'  => 'pending',
+        'user_id' => (int)($_SESSION['user_id'] ?? 1)
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    if ($httpCode >= 200 && $httpCode < 300) {
+        $_SESSION['api_message'] = "✅ تم حفظ المصطلح بنجاح عبر الـ API!";
+    } else {
+        $_SESSION['api_message'] = "❌ فشل الاتصال بالـ API. كود الحالة: $httpCode | الرد: $response";
+    }
+    curl_close($ch);
+    
+    // إعادة توجيه لمنع إعادة إرسال النموذج عند تحديث الصفحة
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+
+// التحقق من أن الطلب هو طلب إرسال (POST/PUT)
 $functions_ready = function_exists('fetch_from_ncbi') && function_exists('translate_to_arabic');
 
 // --- الجزء الخاص بالبوت (Python API) ---
@@ -106,40 +143,6 @@ include("header.php");
 include("validation.php");
 
 
-if (isset($_POST['Submit1'])) {
-    $term   = sanStr($_POST['txt_term']);
-    $trans  = sanStr($_POST['trans']);
-    $desc   = sanStr($_POST['TextArea1']);
-    $smiles = $_POST['smiles_code'] ?? 'N/A';
-    $user_id = $_SESSION['user_id'];
-    
-    // تحديد الحالة بناءً على الرتبة
-    $status = ($_SESSION['role'] === 'admin') ? 'approved' : 'pending';
-
-    // معالجة الصورة
-    $picture = "pic/ncbi_logo.png";
-    if (!empty($_FILES['File1']['name'])) {
-        $file = time() . "_" . $_FILES['File1']['name'];
-        move_uploaded_file($_FILES['File1']['tmp_name'], 'pic/' . $file);
-        $picture = "pic/" . $file;
-    }
-
-    $sql = "INSERT INTO terms (term, trans, defe, smiles_code, picture, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    $stmt = mysqli_prepare($db, $sql);
-    mysqli_stmt_bind_param($stmt, "ssssssi", $term, $trans, $desc, $smiles, $picture, $status, $user_id);
-    
-    if (mysqli_stmt_execute($stmt)) {
-        if ($_SESSION['role'] === 'admin') {
-            $message = "<div class='alert alert-success'>✅ أضيف بنجاح كأدمن!</div>";
-        } else {
-            $message = "<div class='alert alert-info'>⏳ تم الإرسال وبانتظار مراجعة الأدمن.</div>";
-        }
-    } else {
-        $message = "<div class='alert alert-danger'>خطأ: " . mysqli_error($db) . "</div>";
-    }
-}
-// --- أولاً: استيراد أبحاث الهيموفيليا ---
-// --- أولاً: استيراد أبحاث الهيموفيليا ---
 if (isset($_POST['import_hemophilia'])) {
     $query = "Hemophilia Gene Therapy";
     $random_start = rand(0, 100); 
