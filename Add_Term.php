@@ -3,66 +3,73 @@ ob_start();
 session_start();
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
-include_once("api.php"); // تأكد من الـ clean داخل api.php كما فعلنا فوق
-include_once("conn.php"); // تأكد من الـ clean داخل api.php كما فعلنا فوق
+
+include_once("api.php");
+include_once("conn.php");
 $db = $connect ?? $conn;
 $message = "";
-$term    = $_POST['txt_term'] ?? ""; 
-$trans   = $_POST['trans'] ?? "";
-$defe    = $_POST['Text'] ?? ""; // تأكد أن اسم الحقل في الفورم هو 'defe'
-$term_id = $_POST['term_id'] ?? null; // إذا كنت في صفحة تعديل
-$user_id = $_SESSION['user_id'] ?? 1; // قيمة افتراضية للتجربة
+
+// 1. معالجة طلب الإضافة (فقط إذا ضغط المستخدم على زر الحفظ)
 
 if (isset($_POST['Submit1'])) {
-    $url = 'http://127.0.0.1:8000/terms/';
-    
-    // تأكد من تطابق هذه الأسماء مع ما يتوقعه الـ API (schemas.TermSchema)
+    // 1. تأكد أن التوكن موجود في الجلسة
+    if (!isset($_SESSION['access_token'])) {
+        die("خطأ: أنت غير مسجل دخولك، التوكن غير موجود.");
+    }
+
+    $token = $_SESSION['access_token'];
+
     $data = [
-        'term'    => $_POST['txt_term'] ?? "",
-        'trans'   => $_POST['trans'] ?? "",
-        'defe'    => $_POST['TextArea1'] ?? "", // تم تغييرها لتطابق اسم الـ input
-        'status'  => 'pending',
-        'user_id' => (int)($_SESSION['user_id'] ?? 1)
+        'term'  => $_POST['txt_term'] ?? "",
+        'trans' => $_POST['trans'] ?? "",
+        'defe'  => $_POST['TextArea1'] ?? ""
+        // ملاحظة: لا ترسل status أو user_id من الـ PHP، دع الـ API (الذي يملك التوكن) يحدد ذلك أمنياً
     ];
 
-    $ch = curl_init($url);
+    $ch = curl_init('http://127.0.0.1:8000/terms/');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $token // تأكد أن التوكن صحيح
+    ]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     
-    if ($httpCode >= 200 && $httpCode < 300) {
-        $_SESSION['api_message'] = "✅ تم حفظ المصطلح بنجاح عبر الـ API!";
+    if (curl_errno($ch)) {
+        $_SESSION['api_message'] = 'خطأ اتصال: ' . curl_error($ch);
     } else {
-        $_SESSION['api_message'] = "❌ فشل الاتصال بالـ API. كود الحالة: $httpCode | الرد: $response";
+        // الـ FastAPI يرجع 200 أو 201 عند النجاح
+        if ($httpCode == 200 || $httpCode == 201) {
+            $_SESSION['api_message'] = "✅ تمت الإضافة بنجاح!";
+        } else {
+            $_SESSION['api_message'] = "❌ فشل الكود ($httpCode): " . $response;
+        }
     }
     curl_close($ch);
     
-    // إعادة توجيه لمنع إعادة إرسال النموذج عند تحديث الصفحة
     header("Location: " . $_SERVER['PHP_SELF']);
     exit;
 }
 
 
-// التحقق من أن الطلب هو طلب إرسال (POST/PUT)
+// 2. معالجة طلبات البوت أو الأزرار الأخرى
 $functions_ready = function_exists('fetch_from_ncbi') && function_exists('translate_to_arabic');
-
-// --- الجزء الخاص بالبوت (Python API) ---
 $json_input = json_decode(file_get_contents("php://input"), true);
 $data = array_merge($_POST, (array)$json_input);
-// 2. التحقق من الهوية (سواء كان بوت أو مستخدم مسجل دخوله)
+
 $is_python = (isset($data['api_key']) && $data['api_key'] === 'my_secret_key_123');
 $is_logged_in = !empty($_SESSION['username']);
 
-// السماح بالدخول فقط إذا كان بوت أو مستخدم مسجل
 if (!$is_python && !$is_logged_in) {
-    // إذا كان الطلب قادم من "متصفح" وليس لديه سشن، حوله لتسجيل الدخول
     header("Location: ask_to_sign_in.php");
     exit;
 }
+
+// (بقية أكواد البوت واستيراد الجينات تبقى كما هي هنا...)
 
 
 // 1. تحديد نوع الزائر

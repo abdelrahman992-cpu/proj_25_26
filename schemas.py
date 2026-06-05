@@ -6,10 +6,10 @@ from datetime import datetime
 
 class TermSchema(BaseModel):
     term: str
-    trans: Optional[str] = None
-    defe: Optional[str] = None
-    status: str = "pending"
-    user_id: int
+    trans: str
+    defe: str
+    # اجعل user_id اختيارياً أو احذفه إذا كنت لا ترسل القيمة من الـ PHP
+    user_id: Optional[int] = None
 
 class UserCreate(BaseModel):
     username: str

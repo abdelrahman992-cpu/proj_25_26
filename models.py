@@ -1,16 +1,24 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, TIMESTAMP
+import datetime
+import enum
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum as SQLAlchemyEnum, TIMESTAMP, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
-import datetime
+
+# تعريف الصلاحيات كـ Enum
+class UserRole(enum.Enum):
+    user = "user"
+    admin = "admin"
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), nullable=False)
     passwor = Column(String(255), nullable=False)
+    
+    # استخدام Enum للصلاحيات بدلاً من Boolean
+    role = Column(SQLAlchemyEnum(UserRole), default=UserRole.user) 
 
-    # يجب أن يكون الاسم هنا 'terms' ليتطابق مع back_populates في الـ Term
-    terms = relationship("Term", back_populates="owner") 
+    terms = relationship("Term", back_populates="owner")
     sections = relationship("Section", back_populates="owner")
     upgrade_requests = relationship("UpgradeRequest", back_populates="owner")
 
@@ -21,10 +29,9 @@ class Term(Base):
     trans = Column(Text)
     defe = Column(Text)
     picture = Column(String(255), default="pic/default.png", nullable=True) 
-    status = Column(Enum('pending', 'approved', 'rejected'), default='pending')
+    status = Column(SQLAlchemyEnum('pending', 'approved', 'rejected', name="status_enum"), default='pending')
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
-    # يجب أن يكون الاسم هنا 'owner' ليتطابق مع back_populates في الـ User
     owner = relationship("User", back_populates="terms")
 
 class Section(Base):

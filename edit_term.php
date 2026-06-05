@@ -119,13 +119,18 @@ include("header.php");
                         <td><span class="badge <?php echo $status_class; ?>"><?php echo $row['status']; ?></span></td>
                         <td><img src="<?php echo $display_img; ?>" class="molecule-img" width="50" height="50"></td>
                         <td>
-                            <a href="edit_term.php?id=<?php echo $row['id']; ?>#edit-form" class="btn btn-warning btn-sm">📝 تعديل</a>
+    <?php if ($_SESSION['role'] == 'admin'): ?>
+    
+        <a href="edit_term.php?id=<?php echo $row['id']; ?>#edit-form" class="btn btn-warning btn-sm">📝 تعديل</a>
 
-                            <?php if($row['status'] == 'approved'): ?>
-                                <a href="edit_term.php?status_id=<?php echo $row['id']; ?>&new_status=pending" class="btn btn-outline-secondary btn-sm">⏳ تعطيل</a>
-                            <?php else: ?>
-                                <a href="edit_term.php?status_id=<?php echo $row['id']; ?>&new_status=approved" class="btn btn-outline-success btn-sm">✅ تفعيل</a>
-                            <?php endif; ?>
+        <?php if($row['status'] == 'approved'): ?>
+            <a href="edit_term.php?status_id=<?php echo $row['id']; ?>&new_status=pending" class="btn btn-outline-secondary btn-sm">⏳ تعطيل</a>
+        <?php else: ?>
+            <a href="edit_term.php?status_id=<?php echo $row['id']; ?>&new_status=approved" class="btn btn-outline-success btn-sm">✅ تفعيل</a>
+        <?php endif; ?>
+
+    <?php endif; ?>
+</td>
                         </td>
                     </tr>
                     <?php } ?>

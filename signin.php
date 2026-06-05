@@ -4,61 +4,49 @@ include("conn.php");
 include("header.php");
 include("validation.php");
 
-// 1. إذا كان مسجلاً بالفعل، حوله للرئيسية
-if(!empty($_SESSION['user_id'])){
-    header("Location: index.php");
-    exit;
-}
-
 $error = "";
 
-// 2. التحقق عند ضغط زر الدخول
 if(isset($_POST['submit1'])){
     $usern = sanStr(trim($_POST['user']));
     $passw = $_POST['pass'];
 
-    // أ. حماية الـ IP من كثرة المحاولات (البريوت فورس العام)
-    if (getFailedAttemptsCount($connect) >= 5) {
-        $error = "❌ لقد تجاوزت عدد المحاولات المسموح بها. يرجى الانتظار 15 دقيقة.";
-    } 
-    elseif($usern !== "" && $passw !== ""){
+    if($usern !== "" && $passw !== ""){
+        // تحضير البيانات لإرسالها للـ API
+        $postData = http_build_query([
+            'username' => $usern,
+            'password' => $passw
+        ]);
+
+        // إرسال الطلب للـ API (الذي قمت ببرمجته في main.py)
+        $ch = curl_init('http://127.0.0.1:8000/login/');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
         
-        // ب. جلب بيانات المستخدم
-        $stmt = mysqli_prepare($connect, "SELECT id, username, passwor, login_attempts, last_attempt_time FROM users WHERE username=?");
-        mysqli_stmt_bind_param($stmt, "s", $usern);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $user = mysqli_fetch_assoc($result);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $result = json_decode($response, true);
+        curl_close($ch);
 
-        if($user){
-            // ج. التحقق من الحظر الخاص بالحساب
-            $max_attempts = 5;
-            if ($user['login_attempts'] >= $max_attempts && (time() - strtotime($user['last_attempt_time'])) < 900) {
-                $error = "❌ الحساب محظور مؤقتاً. حاول لاحقاً.";
-            } 
-            // د. التحقق من كلمة المرور
-            elseif(password_verify($passw, $user['passwor'])){
-                // نجاح الدخول: تصفير المحاولات
-                mysqli_query($connect, "UPDATE users SET login_attempts=0 WHERE id=" . $user['id']);
-                
-                $_SESSION['user_id']  = $user['id'];
-                $_SESSION['username'] = $user['username'];
+        // التحقق من نجاح الاتصال بالـ API
+        if ($httpCode == 200 && isset($result['access_token'])) {
+            // نجاح: حفظ البيانات في الجلسة
+$_SESSION['access_token'] = $result['access_token'];
+            $_SESSION['username'] = $usern;
+            
+            // جلب الـ ID من قاعدة البيانات المحلية لربطه بالجلسة
+            $stmt = mysqli_prepare($connect, "SELECT id FROM users WHERE username=?");
+            mysqli_stmt_bind_param($stmt, "s", $usern);
+            mysqli_stmt_execute($stmt);
+            $user_row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+            $_SESSION['user_id'] = $user_row['id'];
 
-                session_regenerate_id(true); // حماية ضد Session Fixation
-                header("Location: index.php");
-                exit;
-            } else {
-                // فشل الدخول: زيادة المحاولات
-                logFailedAttempt($connect); // للـ IP
-                mysqli_query($connect, "UPDATE users SET login_attempts=login_attempts+1, last_attempt_time=NOW() WHERE id=" . $user['id']);
-                $error = "❌ اسم المستخدم أو كلمة المرور غير صحيحة.";
-                sleep(2); // تأخير متعمد لإحباط بوتات التخمين
-            }
+            header("Location: index.php");
+            exit;
         } else {
-            logFailedAttempt($connect);
-            $error = "❌ اسم المستخدم أو كلمة المرور غير صحيحة.";
+            // خطأ: الرسالة القادمة من الـ API أو خطأ اتصال
+            $error = "❌ خطأ في الدخول: " . ($result['detail'] ?? "فشل الاتصال بالخادم");
         }
-        mysqli_stmt_close($stmt);
     } else {
         $error = "❌ من فضلك املأ كل البيانات";
     }
