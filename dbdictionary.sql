@@ -31,7 +31,7 @@ CREATE TABLE `failed_attempts` (
   `id` int NOT NULL,
   `ip_address` varchar(45) NOT NULL,
   `attempt_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ;
 
 --
 -- Dumping data for table `failed_attempts`
@@ -212,7 +212,7 @@ CREATE TABLE `upgrade_requests` (
   `request_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `reason` text NOT NULL,
   `status` enum('pending','accepted','rejected') DEFAULT 'pending'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ;
 
 -- --------------------------------------------------------
 
