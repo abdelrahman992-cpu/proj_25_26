@@ -1,19 +1,18 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
-
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-$dotenv->load();
-
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
-
 require 'PHPMailer/src/Exception.php';
 require 'PHPMailer/src/PHPMailer.php';
 require 'PHPMailer/src/SMTP.php';
-// بيانات الإيميل المرسل OTP
-$sender_email = $_ENV['MAIL_EMAIL'];  
-$sender_pass = $_ENV['MAIL_PASS'];   
-
+return [
+    'DB_HOST'    => $_ENV['DB_HOST'] ?? 'localhost',
+    'DB_USER'    => $_ENV['DB_USER'] ?? 'root',
+    'DB_PASS'    => $_ENV['DB_PASS'] ?? '', // إذا كانت فارغة في .env ستكون هنا فارغة
+    'DB_NAME'    => $_ENV['DB_NAME'] ?? 'dbdictionary',
+    'MAIL_EMAIL' => $_ENV['MAIL_EMAIL'] ?? '',
+    'MAIL_PASS'  => $_ENV['MAIL_PASS'] ?? ''
+];
 function sendOTPo($to_email, $otp, $sender_email, $sender_pass){
     $mail = new PHPMailer(true);
     try {

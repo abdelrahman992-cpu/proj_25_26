@@ -7,18 +7,26 @@ mysqli_set_charset($connect,"utf8");
 if(!empty($_SESSION['user_id'])){
     include("post.php");
 }
+$q = $_GET['q'] ?? ''; 
 
-$q = mysqli_real_escape_string($connect, $_GET['q']);
-// جلب كافة الحقول التي يحتاجها الجدول
-$sql = "SELECT term, trans, defe, picture, smiles_code FROM terms 
-        WHERE status = 'approved' AND (term LIKE '%$q%' OR trans LIKE '%$q%') LIMIT 20";
-$res = mysqli_query($connect, $sql);
+// 2. تنظيف المدخلات (مهم جداً للحماية من ثغرات SQL Injection)
+// لا يهم نوع النظام، هذه الدالة تعمل على كليهما
+$q = htmlspecialchars($q); 
 
-$results = [];
-while ($row = mysqli_fetch_assoc($res)) {
-    $results[] = $row;
+// 3. التحقق قبل الاستخدام
+if (!empty($q)) {
+    // كود الاستعلام الخاص بك هنا
+    echo "جاري البحث عن: " . $q;
+} else {
+    // كود في حال عدم وجود بحث
+    echo "الرجاء إدخال كلمة للبحث.";
 }
+// قم بتنظيف المتغير قبل وضعه في الاستعلام
+$q_safe = mysqli_real_escape_string($connect, $q);
 
+$sql = "SELECT term, trans, defe, picture, smiles_code FROM terms 
+        WHERE status = 'approved' AND (term LIKE '%$q_safe%' OR trans LIKE '%$q_safe%') LIMIT 20";
+$res = mysqli_query($connect, $sql);
 ?>
 
 

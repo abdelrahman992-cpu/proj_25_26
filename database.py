@@ -1,9 +1,28 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import os
+from dotenv import load_dotenv
+# استيراد إعدادات النظام من الملف الذي أنشأناه
+from config import settings 
 
-SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://root:27AAaa!!@localhost:3306/dbdictionary"
+load_dotenv(settings['env_file'])
 
+db_user = os.getenv("DB_USER")
+db_pass = os.getenv("DB_PASS", "") # تأكد أنها سلسلة نصية فارغة إذا لم توجد
+db_host = os.getenv("DB_HOST", "localhost")
+db_name = os.getenv("DB_NAME")
+
+# بدلاً من الكود القديم، استخدم هذا المنطق:
+if db_pass:
+    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
+else:
+    # إذا كانت كلمة المرور فارغة، لا نضع النقطتين ":" بعد اسم المستخدم
+    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{db_user}@{db_host}/{db_name}"
+
+print(f"Connecting to: {SQLALCHEMY_DATABASE_URL}")
+
+# ... باقي كود SQLAlchemy (engine, SessionLocal, إلخ)
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

@@ -1,15 +1,21 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
+$config = require __DIR__ . '/config.php';
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
+$db_pass = getenv('DB_PASS'); 
+// إذا كانت القيمة فارغة، اجعلها null صراحةً
+$db_pass = ($db_pass === false || $db_pass === '') ? null : $db_pass;
+// نستخدم المصفوفة التي تم جلبها من config.php
 $connect = mysqli_connect(
-    $_ENV['DB_HOST'],
-    $_ENV['DB_USER'],
-    $_ENV['DB_PASS'],
-    $_ENV['DB_NAME']
+    $config['DB_HOST'],
+    $config['DB_USER'],
+    $config['DB_PASS'],
+    $config['DB_NAME']
 );
-if(!$connect){
-    die("❌ لم يتم الاتصال بقاعدة البيانات");
+
+if (!$connect) {
+    die("❌ خطأ في الاتصال: " . mysqli_connect_error());
 }
 function logFailedAttempt($connect) {
     $ip = $_SERVER['REMOTE_ADDR'];
