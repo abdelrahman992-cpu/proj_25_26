@@ -1,7 +1,7 @@
 <!-- Footer -->
 
 <footer style="background:#555;color:white;text-align:center;padding:15px;margin-top:30px;">
-    © <?php echo date('Y-m-d H:i:s'); ?> - DB Dictionary
+     <?php echo date('Y-m-d H:i:s'); ?> - DB Dictionary
 </footer>
 
 <!-- Scripts -->

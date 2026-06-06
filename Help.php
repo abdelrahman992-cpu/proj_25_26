@@ -19,10 +19,16 @@
   <?php
 include("header.php");
 
+if(!empty($_SESSION['user_id'])){
+    include("post.php");
+}
+
 
       ?>
 <p class="style1"><span lang="ar-eg">المساعدة</span></p>
+<p class="style1">المراجع نموذج موقع قاموس المصطلحات للصف الثاني الثانوي نظام قديم</p>
 
+<?php include("footer.php"); ?>
 </body>
 
 </html>
