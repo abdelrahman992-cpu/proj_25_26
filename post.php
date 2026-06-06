@@ -57,7 +57,7 @@ if (isset($_POST['deleteAccount'])) {
     }
 }
 
-echo ("مرحبا") . " " . htmlspecialchars($_SESSION['username']);
+echo ("مرحبا") . " " .htmlspecialchars($_SESSION['username'] ?? "");
 echo "<br>";
 echo ("البريد الالكتروني") . " : " . $_SESSION['email'];
 echo "<br>";

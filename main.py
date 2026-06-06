@@ -5,6 +5,7 @@ import random
 from auth import get_current_user
 from models import UserRole 
 import bcrypt 
+from typing import Optional
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm # هذا السطر هو الذي كان ينقصك
 # في أعلى ملف main.py
 from auth import create_access_token
@@ -83,18 +84,21 @@ def approve_term(term_id: int,
 
 @app.post("/users/")
 def create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
-    hashed_password = pwd_context.hash(user.passwor)
-    # نحدد الدور يدوياً هنا
+    # 1. تشفير كلمة المرور باستخدام الدالة التي عرفتها في الأعلى
+    hashed_password = get_password_hash(user.passwor)
     
-    # بدلاً من pwd_context.hash(password)
-    new_user.passwor = get_password_hash(user.passwor)
+    # 2. إنشاء المستخدم الجديد مباشرة بالبيانات الصحيحة
     new_user = models.User(
         username=user.username, 
-        passwor=hashed_password, 
-        role=models.UserRole.user # تحديد الدور كـ user
+        passwor=hashed_password,  # تأكد أن اسم العمود في موديل User هو passwor
+        role=models.UserRole.user
     )
+    
+    # 3. حفظ في قاعدة البيانات
     db.add(new_user)
     db.commit()
+    db.refresh(new_user)
+    
     return {"message": "تم إنشاء الحساب بنجاح"}
 # في ملف main.py
 
@@ -134,14 +138,23 @@ def resend_otp(user_id: int):
     code = random.randint(100000, 999999)
     return {"message": "تمت إعادة الإرسال", "code": code}
 # أضف هذه الدالة في main.py
-@app.get("/terms/{term_id}")
-def get_term(term_id: int, db: Session = Depends(database.get_db)):
-    term = db.query(models.Term).filter(models.Term.id == term_id).first()
-    if not term:
-        raise HTTPException(status_code=404, detail="المصطلح غير موجود")
-    return term
+
+@app.get("/terms/")
+def get_terms(term_id: Optional[int] = None, db: Session = Depends(database.get_db)):
+    if term_id is not None:
+        # جلب مصطلح محدد
+        term = db.query(models.Term).filter(models.Term.id == term_id).first()
+        if not term:
+            raise HTTPException(status_code=404, detail="المصطلح غير موجود")
+        return term
     
+    # جلب الكل إذا لم يتم تمرير ID
+    return db.query(models.Term).all()
+
+# دالة المصطلحات العامة (الموافق عليها فقط)
 @app.get("/terms/public/")
 def get_public_terms(db: Session = Depends(database.get_db)):
-    # جلب المصطلحات الموافق عليها فقط
     return db.query(models.Term).filter(models.Term.status == 'approved').all()
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

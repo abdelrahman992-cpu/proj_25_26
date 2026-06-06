@@ -14,7 +14,7 @@ def get_system_settings():
         return {
             "os": "Linux",
             "env_file": ".env", # غالباً في لينكس نستخدم .env
-            "db_host": "127.0.0.1",
+            "db_host": "localhost",
             "path_separator": "/"
         }
 

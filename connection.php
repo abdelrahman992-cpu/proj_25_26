@@ -1,22 +1,27 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
-$config = require __DIR__ . '/config.php';
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+$envFile = (PHP_OS_FAMILY === 'Windows') ? '2.env' : '.env';
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__, $envFile);
 $dotenv->load();
-$db_pass = getenv('DB_PASS'); 
-// إذا كانت القيمة فارغة، اجعلها null صراحةً
-$db_pass = ($db_pass === false || $db_pass === '') ? null : $db_pass;
-// نستخدم المصفوفة التي تم جلبها من config.php
-$connect = mysqli_connect(
-    $config['DB_HOST'],
-    $config['DB_USER'],
-    $config['DB_PASS'],
-    $config['DB_NAME']
-);
+// 3. جلب القيم من $_ENV مباشرة (تجنب الاعتماد على $config إذا كان غير مستقر)
+$host = $_ENV['DB_HOST'] ?? 'localhost';
+$user = $_ENV['DB_USER'] ?? 'root';
+$pass = $_ENV['DB_PASS'] ?? '';
+$db   = $_ENV['DB_NAME'] ?? 'dbdictionary';
+// 4. جلب قيم الإيميل (الإضافة الجديدة)
+$sender_email = $_ENV['MAIL_EMAIL'] ?? '';
+$sender_pass  = $_ENV['MAIL_PASS'] ?? '';
+// 4. الاتصال
+$connect = mysqli_connect($host, $user, $pass, $db);
 
 if (!$connect) {
     die("❌ خطأ في الاتصال: " . mysqli_connect_error());
 }
+
+// الدوال الخاصة بك (لا تغيير فيها)
 function logFailedAttempt($connect) {
     $ip = $_SERVER['REMOTE_ADDR'];
     $stmt = mysqli_prepare($connect, "INSERT INTO failed_attempts (ip_address) VALUES (?)");
@@ -26,7 +31,6 @@ function logFailedAttempt($connect) {
 
 function getFailedAttemptsCount($connect) {
     $ip = $_SERVER['REMOTE_ADDR'];
-    // جلب المحاولات في آخر 15 دقيقة فقط
     $stmt = mysqli_prepare($connect, "SELECT COUNT(*) as count FROM failed_attempts WHERE ip_address=? AND attempt_time > (NOW() - INTERVAL 15 MINUTE)");
     mysqli_stmt_bind_param($stmt, "s", $ip);
     mysqli_stmt_execute($stmt);
@@ -34,3 +38,4 @@ function getFailedAttemptsCount($connect) {
     $row = mysqli_fetch_assoc($result);
     return $row['count'];
 }
+?>

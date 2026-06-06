@@ -1,8 +1,8 @@
 <?php
-session_start();
-include("connection.php");
-include("config.php");
-include("translate.php");
+include("conn.php");
+
+
+
 
 $error = "";
 $success = "";
@@ -38,10 +38,15 @@ if(isset($_POST['submite']) && isset($user_id)){
         if(mysqli_stmt_execute($stmt2)){
             $success = "✅ تم تغيير كلمة المرور بنجاح.";
             unset($_SESSION['reset_user']);
+              header("Location: index.php");
+                exit;
+            
         }
         mysqli_stmt_close($stmt2);
     }
 }
+include("header.php");
+echo ("مرحبا") . " " .htmlspecialchars($_SESSION['username'] ?? "");
 ?>
 
 <!DOCTYPE html>
@@ -49,12 +54,7 @@ if(isset($_POST['submite']) && isset($user_id)){
 <head>
     <meta charset="utf-8">
     <title>تغيير كلمة المرور</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/css/bootstrap.min.css">
-    <style>
-        /* أضف تنسيقاتك هنا */
-        .dropdown-content { display: none; position: absolute; background-color: #160855; z-index: 1; }
-        .dropdown:hover .dropdown-content { display: block; }
-    </style>
+
 </head>
 <body>
 
@@ -80,6 +80,6 @@ if(isset($_POST['submite']) && isset($user_id)){
         <input type="submit" name="submite" class="btn btn-primary" value="تغيير كلمة المرور">
     </form>
 </div>
-
+<?php include("footer.php"); ?>
 </body>
 </html>
