@@ -41,3 +41,4 @@ class LoginSchema(BaseModel):
     username: str
     passwor: str  # مع الالتزام بالاسم الذي طلبته
 
+

@@ -17,43 +17,21 @@
 
     mysqli_stmt_close($stmt);
 
-// ================= حذف الحساب =================
+
 if (isset($_POST['deleteAccount'])) {
-    if (!empty($_SESSION['user_id'])) {
-        $user_id = $_SESSION['user_id'];
-        $pass = $_POST['password'];
+    $pass = $_POST['password'];
+    $email = $_SESSION['email'];
 
-        $stmt = mysqli_prepare($connect, "SELECT * FROM users WHERE id=?");
-        mysqli_stmt_bind_param($stmt, "i", $user_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $row = mysqli_fetch_assoc($result);
-        mysqli_stmt_close($stmt);
+    // نرسل الإيميل وكلمة المرور للـ API
+    $result = callAPI("POST", "/otp/send-delete/?email=" . urlencode($email) . "&password=" . urlencode($pass));
 
-        if ($row && password_verify($pass, $row['passwor'])) {
-            $otp = rand(100000, 999999);
-            $expire = date("Y-m-d H:i:s", strtotime("+5 minutes"));
-
-            $stmt2 = mysqli_prepare($connect, "UPDATE users SET delete_otp=?, delete_expire=? WHERE id=?");
-            mysqli_stmt_bind_param($stmt2, "ssi", $otp, $expire, $user_id);
-            mysqli_stmt_execute($stmt2);
-            mysqli_stmt_close($stmt2);
-
-            $_SESSION['delete_user'] = $user_id;
-
-            if (sendOTPo($row['email'], $otp, $sender_email, $sender_pass)) {
-                header("Location: confirm_delete.php");
-                exit;
-            } else {
-                $error = "❌ فشل إرسال الإيميل";
-            }
-
-        } else {
-            $error = "❌ كلمة المرور غلط";
-        }
-
+    if (isset($result['message'])) {
+        $_SESSION['delete_user'] = $_SESSION['user_id'];
+        header("Location: confirm_delete.php");
+        exit;
     } else {
-        $error = "❌ لم يتم التعرف على المستخدم";
+        // عرض الخطأ القادم من الـ API (مثل "كلمة المرور غير صحيحة")
+        $error = "❌ " . ($result['detail'] ?? "فشل إرسال كود الحذف");
     }
 }
 

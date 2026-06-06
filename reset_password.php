@@ -32,16 +32,23 @@ if(isset($_POST['submite']) && isset($user_id)){
         $error = "❌ كلمة المرور وتأكيدها غير متطابقين";
     } else {
         $hashed_pass = password_hash($new_password, PASSWORD_DEFAULT);
-        // تأكد من كتابة password بشكل صحيح
-        $stmt2 = mysqli_prepare($connect, "UPDATE users SET passwor=?, reset_code=NULL, reset_expire=NULL WHERE id=?");
-        mysqli_stmt_bind_param($stmt2, "si", $hashed_pass, $user_id);
-        if(mysqli_stmt_execute($stmt2)){
-            $success = "✅ تم تغيير كلمة المرور بنجاح.";
-            unset($_SESSION['reset_user']);
-              header("Location: index.php");
-                exit;
-            
-        }
+// 1. تحديث كلمة المرور فقط في جدول users
+$stmt2 = mysqli_prepare($connect, "UPDATE users SET passwor=? WHERE id=?");
+mysqli_stmt_bind_param($stmt2, "si", $hashed_pass, $user_id);
+mysqli_stmt_execute($stmt2);
+
+// 2. إذا كنت تريد حذف الكود من جدول otp_codes (الجدول الصحيح للأكواد)
+$stmt3 = mysqli_prepare($connect, "DELETE FROM otp_codes WHERE user_id=?");
+mysqli_stmt_bind_param($stmt3, "i", $user_id);
+mysqli_stmt_execute($stmt3);
+
+// التحقق من نجاح العمليتين
+if(mysqli_stmt_affected_rows($stmt2) >= 0) {
+    $success = "✅ تم تغيير كلمة المرور بنجاح.";
+    unset($_SESSION['reset_user']);
+    header("Location: index.php");
+    exit;
+}
         mysqli_stmt_close($stmt2);
     }
 }

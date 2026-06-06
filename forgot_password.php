@@ -1,14 +1,14 @@
 <?php
 include("conn.php");
 
-
 $error = "";
 $success = "";
 
 // 1. معالجة طلب إرسال الكود
 if(isset($_POST['submit'])) {
     $input = trim($_POST['email']); 
-
+    
+    // استخراج بيانات المستخدم أولاً
     $stmt = mysqli_prepare($connect, "SELECT id, username, email FROM users WHERE email=? OR username=?");
     mysqli_stmt_bind_param($stmt, "ss", $input, $input);
     mysqli_stmt_execute($stmt);
@@ -16,38 +16,32 @@ if(isset($_POST['submit'])) {
 
     if(mysqli_num_rows($result) == 1) {
         $row = mysqli_fetch_assoc($result);
-        $user_id = $row['id'];
         $user_email = $row['email'];
         $user_name = $row['username'];
 
-        $reset_code = random_int(100000, 999999);
-        $expire_time = date("Y-m-d H:i:s", strtotime("+15 minutes"));
-
-        $stmt2 = mysqli_prepare($connect, "UPDATE users SET reset_code=?, reset_expire=? WHERE id=?");
-        mysqli_stmt_bind_param($stmt2, "ssi", $reset_code, $expire_time, $user_id);
-        mysqli_stmt_execute($stmt2);
-        mysqli_stmt_close($stmt2);
-// تمويه البيانات (تعديل: اسم المستخدم يظهر كاملاً)
-$maskedName = $user_name; // سيظهر اسم المستخدم كما هو بدون نجوم
-$parts = explode("@", $user_email);
-$domainParts = explode(".", $parts[1]); // تقسيم الدومين لمتغير لتجنب خطأ end
-$domain = end($domainParts); 
-$maskedEmail = substr($parts[0], 0, 2) . "****" . substr($parts[0], -1) . "@*****." . $domain;
-
-
-
-        if(sendOTP($user_email, $reset_code, $sender_email, $sender_pass)) {
+        // الاتصال بالـ API
+        $result_api = callAPI("POST", "/otp/send/?email=" . urlencode($user_email));
+        
+        // التحقق من الرد
+        if(isset($result_api['message'])) {
             $_SESSION['reset_email'] = $user_email;
-            $success = "📧 تم إرسال كود التحقق إلى: المستخدم ($maskedName) | الإيميل ($maskedEmail)";
+            
+            // تشفير البيانات للعرض
+            $parts = explode("@", $user_email);
+            $domainParts = explode(".", $parts[1]);
+            $domain = end($domainParts); 
+            $maskedEmail = substr($parts[0], 0, 2) . "****" . substr($parts[0], -1) . "@*****." . $domain;
+            
+            $success = "📧 تم إرسال كود التحقق إلى: المستخدم ($user_name) | الإيميل ($maskedEmail)";
         } else {
-            $error = "❌ فشل في إرسال البريد الإلكتروني.";
+            // هنا ستظهر تفاصيل الخطأ إذا كان الـ API يعيد رسالة خطأ
+            $error = "❌ فشل الإرسال: " . ($result_api['detail'] ?? "خطأ غير معروف");
         }
     } else {
-        $error = "❌ اسم المستخدم أو البريد الإلكتروني غير موجود.";
+        $error = "❌ المستخدم غير موجود.";
     }
 }
 
-// 2. معالجة التحقق من الكود (OTP)
 if(isset($_POST['submito'])){
     if(isset($_POST['ottp']) && isset($_POST['email'])){
         $email = trim($_POST['email']);
@@ -56,29 +50,29 @@ if(isset($_POST['submito'])){
         if(!preg_match('/^[0-9]{6}$/', $otp_input)){
             $error = "❌ OTP غير صالح";
         } else {
-            if (getFailedAttemptsCount($connect) >= 5) {
+            // التحقق من الحظر
+            if (function_exists('getFailedAttemptsCount') && getFailedAttemptsCount($connect) >= 5) {
                 die("❌ لقد تجاوزت عدد المحاولات المسموح بها. يرجى الانتظار 15 دقيقة.");
             }
 
-            $stmt = mysqli_prepare($connect, "SELECT id FROM users WHERE email=? AND reset_code=? AND reset_expire > NOW()");
-            mysqli_stmt_bind_param($stmt, "ss", $email, $otp_input);
-            mysqli_stmt_execute($stmt);
-            $res = mysqli_stmt_get_result($stmt);
+            $result = callAPI("POST", "/otp/verify/?email=" . urlencode($email) . "&code=" . urlencode($otp_input));
 
-            if(mysqli_num_rows($res) == 1){
+            if(isset($result['status']) && $result['status'] == 'success') {
                 $_SESSION['reset_user'] = $email;
                 unset($_SESSION['reset_email']);
                 header("Location: reset_password.php");
                 exit;
             } else {
-                logFailedAttempt($connect);
-                $error = "❌ الكود غير صحيح أو منتهي الصلاحية.";
+                if (function_exists('logFailedAttempt')) {
+                    logFailedAttempt($connect);
+                }
+                $error = $result['detail'] ?? "❌ الكود غير صحيح أو منتهي الصلاحية.";
             }
         }
     }
 }
 
-// استدعاء الهيدر هنا (بعد معالجة كل الـ POST)
+// استدعاء الهيدر
 include("header.php");
 ?>
 

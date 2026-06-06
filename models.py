@@ -1,26 +1,37 @@
-import datetime
-import enum
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum as SQLAlchemyEnum, TIMESTAMP, Boolean
+from sqlalchemy import Column, Integer, String, Enum, ForeignKey, Text, DateTime, TIMESTAMP, Table
 from sqlalchemy.orm import relationship
 from database import Base
+import enum
+import datetime 
+from sqlalchemy.sql import func
 
-# تعريف الصلاحيات كـ Enum
-class UserRole(enum.Enum):
-    user = "user"
+
+
+class UserRole(str, enum.Enum):
     admin = "admin"
+    user = "user"
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), nullable=False)
-    passwor = Column(String(255), nullable=False)
-    
-    # استخدام Enum للصلاحيات بدلاً من Boolean
-    role = Column(SQLAlchemyEnum(UserRole), default=UserRole.user) 
+    username = Column(String(30), nullable=False)
+    passwor = Column(String(255))
+    role = Column(Enum(UserRole), default=UserRole.user)
+    email = Column(String(255))
+    phone = Column(String(20))
+    login_attempts = Column(Integer, default=0)
+    last_attempt_time = Column(DateTime)
+    pending_email = Column(String(255))
+    pending_phone = Column(String(20))
+    upgrade_requests = relationship("UpgradeRequest", back_populates="user_obj")
 
-    terms = relationship("Term", back_populates="owner")
-    sections = relationship("Section", back_populates="owner")
-    upgrade_requests = relationship("UpgradeRequest", back_populates="owner")
+class Section(Base):
+    __tablename__ = "sections"
+    s_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    username = Column(String(50), nullable=False)
+    deta = Column(Text)
+    last_activity = Column(TIMESTAMP)
 
 class Term(Base):
     __tablename__ = "terms"
@@ -28,29 +39,35 @@ class Term(Base):
     term = Column(String(50), nullable=False)
     trans = Column(Text)
     defe = Column(Text)
-    picture = Column(String(255), default="pic/default.png", nullable=True) 
-    status = Column(SQLAlchemyEnum('pending', 'approved', 'rejected', name="status_enum"), default='pending')
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    smiles_code = Column(Text)
+    picture = Column(String(255), default='yyy.jpg')
+    user_id = Column(Integer)
+    status = Column(String(20), default='pending')
 
-    owner = relationship("User", back_populates="terms")
+class OTP(Base):
+    __tablename__ = "otp_codes"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    code = Column(String(10))           # للتحقق العام
+    expires_at = Column(DateTime)
+    delete_otp = Column(String(6))      # كود حذف الحساب
+    delete_expire = Column(DateTime)
+    reset_code = Column(String(10))     # كود استعادة كلمة المرور
+    reset_expire = Column(DateTime)
 
-class Section(Base):
-    __tablename__ = "sections"
-    s_id = Column(Integer, primary_key=True, index=True)
-    section_name = Column(String(100), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-
-    owner = relationship("User", back_populates="sections")
+# يمكنك إضافة كلاسات أخرى مثل UpgradeRequest و FailedAttempts بنفس الطريقة
 
 class FailedAttempt(Base):
     __tablename__ = "failed_attempts"
     id = Column(Integer, primary_key=True, index=True)
     ip_address = Column(String(45), nullable=False)
-    attempt_time = Column(TIMESTAMP, default=datetime.datetime.utcnow)
+    attempt_time = Column(TIMESTAMP, server_default=func.now())
 
 class UpgradeRequest(Base):
     __tablename__ = "upgrade_requests"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
-    owner = relationship("User", back_populates="upgrade_requests")
+    user_obj = relationship("User", back_populates="upgrade_requests")
+
+

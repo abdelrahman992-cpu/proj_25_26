@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 import models, schemas, database, auth  # <--- يجب إضافة auth هنا
 import random
@@ -7,11 +7,47 @@ from models import UserRole
 import bcrypt 
 from typing import Optional
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm # هذا السطر هو الذي كان ينقصك
-# في أعلى ملف main.py
 from auth import create_access_token
-
-
+import secrets
+import string
+from database import get_db, SessionLocal, engine
+import datetime as dt
+import smtplib
+from email.mime.text import MIMEText
+import os
+from dotenv import load_dotenv
 app = FastAPI()
+load_dotenv()
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+def send_email(to_email, code):
+    if not EMAIL_USER or not EMAIL_PASS:
+        print("Error: Email credentials not found in .env")
+        return False
+        
+    msg = MIMEText(f"كود التحقق الخاص بك هو: {code}")
+    msg['Subject'] = "كود استعادة كلمة المرور"
+    msg['From'] = EMAIL_USER
+    msg['To'] = to_email
+    
+    try:
+        # استخدام المتغيرات التي قرأناها من .env
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.sendmail(EMAIL_USER, to_email, msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+def generate_otp_code(length=6):
+    # توليد سلسلة أرقام عشوائية
+    return ''.join(secrets.choice(string.digits) for _ in range(length))
+new_code = generate_otp_code(6)
+
+# تخزين الكود في قاعدة البيانات
 
 def verify_password(plain_password, hashed_password):
     # نستخدم [:72] لتجنب خطأ الـ 72 بايت الذي ظهر لك
@@ -111,34 +147,80 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(da
     db.commit()
     return {"message": "تم التعديل"}
 
-@app.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(database.get_db), current_user_id: int = Depends(auth.get_current_user)):
-    if user_id != current_user_id: raise HTTPException(status_code=403, detail="غير مسموح لك")
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+@app.post("/user/delete/")
+def delete_user(email: str, code: str, db: Session = Depends(database.get_db)):
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="مستخدم غير موجود")
+        
+    otp_record = db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.delete_otp == code
+    ).first()
+
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="الكود غير صحيح")
+
+    # --- الحل هنا ---
+    # نقوم بتحويل وقت قاعدة البيانات إلى UTC قبل المقارنة
+    # إذا كان الحقل في قاعدة البيانات مخزناً بدون منطقة زمنية (naive)
+    db_time = otp_record.delete_expire
+    if db_time.tzinfo is None:
+        db_time = db_time.replace(tzinfo=dt.timezone.utc)
+    
+    if db_time < dt.datetime.now(dt.timezone.utc):
+        raise HTTPException(status_code=400, detail="الكود منتهي الصلاحية")
+    # ----------------
+
     db.delete(user)
+    db.delete(otp_record)
     db.commit()
-    return {"message": "تم حذف حسابك نهائياً"}
-# --- 3. عمليات الـ OTP (3 دوال) ---
+    return {"status": "deleted"}
 
-# إرسال كود (يُستخدم قبل إنشاء/تعديل/حذف)
-@app.post("/otp/send/{user_id}")
-def send_otp(user_id: int):
-    code = random.randint(100000, 999999)
-    return {"message": "تم إرسال الكود", "code": code}
+@app.post("/otp/send/")
+def send_otp(email: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="مستخدم غير موجود")
 
-# التحقق من الكود
+    # 1. توليد الكود وتخزينه في متغير اسمه otp_code
+    otp_code = generate_otp_code(6)
+    
+    # 2. تمرير نفس المتغير otp_code إلى دالة الإرسال
+    background_tasks.add_task(send_email, email, otp_code)
+    
+    # 3. استخدام نفس المتغير otp_code في قاعدة البيانات
+    new_otp = models.OTP(
+        user_id=user.id,
+        reset_code=otp_code,
+        expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=15)
+    )
+    
+    db.add(new_otp)
+    db.commit()
+    
+    return {"message": "تم إرسال الكود، قد يستغرق وصوله ثوانٍ معدودة."}
+
+# دالة التحقق من OTP
 @app.post("/otp/verify/")
-def verify_otp(user_id: int, code: int):
-    # هنا تضع منطق المقارنة مع القاعدة
-    return {"status": "success", "message": "تم التحقق"}
+def verify_otp(email: str, code: str, db: Session = Depends(database.get_db)):
+    # 1. البحث باستخدام 'reset_code' وليس 'code'
+    otp_record = db.query(models.OTP).join(models.User).filter(
+        models.User.email == email,
+        models.OTP.reset_code == code, # تأكد أن هذا هو اسم العمود في models.py
+        models.OTP.expires_at > dt.datetime.now(dt.timezone.utc)
+    ).first()
 
-# إعادة إرسال الكود
-@app.post("/otp/resend/{user_id}")
-def resend_otp(user_id: int):
-    code = random.randint(100000, 999999)
-    return {"message": "تمت إعادة الإرسال", "code": code}
-# أضف هذه الدالة في main.py
+    if not otp_record:
+        # للإصلاح: يمكنك إضافة print هنا لرؤية ما يحدث في التيرمينال
+        print(f"DEBUG: No OTP found for {email} with code {code}")
+        raise HTTPException(status_code=400, detail="الكود غير صحيح أو منتهي الصلاحية")
 
+    # 2. حذف الكود بعد استخدامه
+    db.delete(otp_record)
+    db.commit()
+    
+    return {"status": "success", "message": "تم التحقق بنجاح"}
 @app.get("/terms/")
 def get_terms(term_id: Optional[int] = None, db: Session = Depends(database.get_db)):
     if term_id is not None:
@@ -158,3 +240,23 @@ def get_public_terms(db: Session = Depends(database.get_db)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
+@app.post("/otp/send-delete/")
+def send_delete_otp(email: str, password: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user or not verify_password(password, user.passwor):
+        raise HTTPException(status_code=400, detail="كلمة المرور غير صحيحة")
+    
+    otp_code = generate_otp_code(6)
+    expire_time = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5)
+    
+    new_otp = models.OTP(
+        user_id=user.id,
+        delete_otp=otp_code,
+        delete_expire=expire_time
+    )
+    db.add(new_otp)
+    db.commit()
+    
+    background_tasks.add_task(send_email, email, otp_code)
+    return {"message": "تم إرسال الكود", "expires_at": expire_time.isoformat()}
+    
