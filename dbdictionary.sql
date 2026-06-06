@@ -3,8 +3,8 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Jun 02, 2026 at 09:01 PM
--- Server version: 8.0.45-0ubuntu0.24.04.1
+-- Generation Time: Jun 06, 2026 at 11:13 AM
+-- Server version: 8.0.46-0ubuntu0.24.04.2
 -- PHP Version: 8.3.6
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
@@ -31,7 +31,7 @@ CREATE TABLE `failed_attempts` (
   `id` int NOT NULL,
   `ip_address` varchar(45) NOT NULL,
   `attempt_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
 -- Dumping data for table `failed_attempts`
@@ -46,7 +46,11 @@ INSERT INTO `failed_attempts` (`id`, `ip_address`, `attempt_time`) VALUES
 (6, '127.0.0.1', '2026-05-20 11:54:39'),
 (7, '127.0.0.1', '2026-05-28 11:16:17'),
 (8, '127.0.0.1', '2026-06-02 01:13:56'),
-(9, '127.0.0.1', '2026-06-02 02:05:13');
+(9, '127.0.0.1', '2026-06-02 02:05:13'),
+(10, '127.0.0.1', '2026-06-06 10:30:40'),
+(11, '127.0.0.1', '2026-06-06 10:31:03'),
+(12, '127.0.0.1', '2026-06-06 10:32:05'),
+(13, '127.0.0.1', '2026-06-06 10:54:39');
 
 -- --------------------------------------------------------
 
@@ -82,7 +86,7 @@ CREATE TABLE `terms` (
   `trans` text COLLATE utf8mb4_unicode_ci,
   `defe` longtext COLLATE utf8mb4_unicode_ci,
   `smiles_code` text COLLATE utf8mb4_unicode_ci,
-  `picture` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `picture` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT 'yyy.jpg',
   `user_id` int DEFAULT NULL,
   `status` enum('pending','approved','rejected','') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'pending'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -92,8 +96,6 @@ CREATE TABLE `terms` (
 --
 
 INSERT INTO `terms` (`id`, `term`, `trans`, `defe`, `smiles_code`, `picture`, `user_id`, `status`) VALUES
-(9, 'tot', 'tot', 'tot', NULL, 'up/yyy.jpg ', NULL, 'approved'),
-(10, 'tet', 'tet', 'tet', NULL, 'pic/04.jpg', NULL, 'approved'),
 (12, 'GSE242805', 'Transcriptomic profiling of human monocytes', 'High-throughput sequencing study investigating gene expression in human monocytes.', NULL, 'pic/ncbi_logo.png', NULL, 'approved'),
 (13, 'GSE150392', 'Single-cell analysis of COVID-19 immune response', 'Study of PBMC samples from patients with severe SARS-CoV-2 infection.', NULL, 'pic/ncbi_logo.png', NULL, 'approved'),
 (14, 'GSE332757', 'Resident mesenchymal progenitor cells require autocrine IGF-I in homeostatic and regenerating skeletal muscle', 'Fibro-Adipogenic Progenitors (FAPs) are muscle-resident mesenchymal stromal cells essential for homeostasis and regeneration but can produce fibrosis or intramuscular fat in pathological conditions. Insulin-like Growth Factor-I (IGF-I) regulates regeneration through actions on muscle fibers, satellite cells, macrophages, and extracellular matrix (ECM) remodeling, but has multiple sources. To assess the role of FAP-derived IGF-I, we generated inducible FAP-specific Igf1-deficient (FID) mice. Following BaCl₂ injury, FID muscles displayed impaired regeneration, with smaller fibers, fewer Pax7⁺ and MyoD⁺ cells, increased CD68⁺ macrophages, decreased collagen, and suppressed FAP proliferation. After glycerol-induced injury, FID muscles had reduced fat. Primary FID FAPs displayed blunted proliferation, upregulated immune-regulatory genes, and downregulated ECM and growth genes, with delayed fibrogenic and adipogenic differentiation. scRNA-seq of homeostatic muscle revealed reduced protein translation and ECM indices alongside increased senescence markers in FID samples. Taken together, FAP IGF-I is critical for FAP function, with direct and indirect impact on muscle regeneration.', NULL, 'pic/ncbi_logo.png', NULL, 'approved'),
@@ -176,16 +178,13 @@ INSERT INTO `terms` (`id`, `term`, `trans`, `defe`, `smiles_code`, `picture`, `u
 (96, 'PMID: 42027312', 'العلاج الجيني للهيموفيليا ب: حاجز NAb المذاب يتم التغلب عليه بواسطة النمط المصلي للفيروس المرتبط بالغدة الغدية 5.', '', NULL, 'pic/ncbi_logo.png', NULL, 'approved'),
 (99, 'treertertret', 'rrtrttr', 'gregrer', NULL, 'pic/ncbi_logo.png', NULL, 'approved'),
 (101, 'po', 'op', 'yyy', NULL, 'pic/ncbi_logo.png', NULL, 'rejected'),
-(103, 'rrrrr', 'rrrrr', '3333', '', 'pic/ncbi_logo.png', 48, 'approved'),
-(104, 'nnn', 'nnn', 'nnn', '', 'pic/ncbi_logo.png', 48, 'approved'),
-(105, 'iii', 'iii', 'iii', '', 'pic/ncbi_logo.png', 48, 'rejected'),
 (106, 'ثثثث', 'ooo', 'ooo', '', 'pic/ncbi_logo.png', 46, 'approved'),
 (109, 'Gene: TP53', 'الجين: TP53', 'يقوم هذا الجين بتشفير بروتين مثبط للورم يحتوي على مجالات التنشيط النسخي وربط الحمض النووي ومجالات احتكار القلة. يستجيب البروتين المشفر للضغوط الخلوية المتنوعة لتنظيم التعبير عن الجينات المستهدفة، وبالتالي إحداث توقف دورة الخلية، أو موت الخلايا المبرمج، أو الشيخوخة، أو إصلاح الحمض النووي، أو التغيرات في عملية التمثيل الغذائي. ترتبط الطفرات في هذا الجين بمجموعة متنوعة من السرطانات البشرية، بما في ذلك السرطانات الوراثية مثل متلازمة لي فروميني. يؤدي الربط البديل لهذا الجين واستخدام المروجين البديلين إلى ظهور متغيرات متعددة وأشكال إسوية في النسخ. كما تبين أيضًا أن الأشكال الإسوية الإضافية ناتجة عن استخدام أكواد بدء الترجمة البديلة من متغيرات النسخ المتطابقة (PMIDs: 12032546، 20937277). [مقدمة من RefSeq، ديسمبر 2016]', 'N/A', 'pic/ncbi_logo.png', 46, 'approved'),
 (110, 'PMID: 42211742', 'الضوابط الخارجية لتطوير أدوية الأمراض النادرة: دروس للطرائق العلاجية الناشئة والمتقدمة.', 'Research ID: 42211742', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
 (111, 'PMID: 42209937', 'التصحيح: التقييم قبل السريري للعلاج الجيني AAV8-R338L للهيموفيليا: الفعالية والحركية الدوائية والتوزيع والإفراز والسمية في نماذج الفئران والرئيسيات غير البشرية.', 'Research ID: 42209937', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
-(112, 'PMID: 42206011', 'تقرير حالة عن تطور مثبط FVIII عالي العيار بعد العلاج الجيني بوساطة AAV في الهيموفيليا A.', 'Research ID: 42206011', NULL, 'pic/ncbi_logo.png', 46, 'approved');
+(112, 'PMID: 42206011', 'تقرير حالة عن تطور مثبط FVIII عالي العيار بعد العلاج الجيني بوساطة AAV في الهيموفيليا A.', 'Research ID: 42206011', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
+(113, 'PMID: 42117390', 'التصورات والتوصيات المتعلقة بالعلاج الجيني للهيموفيليا ب: وجهة نظر أصحاب المصلحة المتعددين من المرضى ومقدمي الرعاية ومتخصصي الرعاية الصحية.', 'حصل العلاج الجيني للهيموفيليا B على موافقة إدارة الغذاء والدواء الأمريكية، مما يوفر للمرضى خيارًا علاجيًا تحويليًا. ', NULL, 'pic/ncbi_logo.png', 46, 'approved');
 INSERT INTO `terms` (`id`, `term`, `trans`, `defe`, `smiles_code`, `picture`, `user_id`, `status`) VALUES
-(113, 'PMID: 42117390', 'التصورات والتوصيات المتعلقة بالعلاج الجيني للهيموفيليا ب: وجهة نظر أصحاب المصلحة المتعددين من المرضى ومقدمي الرعاية ومتخصصي الرعاية الصحية.', 'حصل العلاج الجيني للهيموفيليا B على موافقة إدارة الغذاء والدواء الأمريكية، مما يوفر للمرضى خيارًا علاجيًا تحويليًا. ', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
 (114, 'PMID: 42116125', 'العلاج الجيني لأمراض الكبد: الأساليب والتحديات والفرص.', 'لقد برز العلاج الجيني كإستراتيجية واعدة ومحورية لمعالجة العديد من الاضطرابات الوراثية التي تفتقر حاليًا إلى خيارات علاجية فعالة. ', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
 (115, 'PMID: 42088902', 'العلاج الوقائي بالإميسيزوماب مقابل تحريض التحمل المناعي لدى الأطفال المصابين بالهيموفيليا الشديدة A والمثبطات: مقارنة بأثر رجعي للتحكم في النزيف ونوعية الحياة والتكلفة.', 'هناك أدلة محدودة تقارن بشكل مباشر بين العلاج الوقائي للإميسيزوماب (EMI) وتحريض التحمل المناعي (ITI) لدى الأطفال المصابين بالهيموفيليا الشديدة A والمثبطات عالية العيار (SHAcwHTI)، وخاصة التحكم في النزيف، ونوعية الحياة (QoL)، والتكلفة. ', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
 (116, 'PMID: 42211742', 'الضوابط الخارجية لتطوير أدوية الأمراض النادرة: دروس للطرائق العلاجية الناشئة والمتقدمة.', 'Research ID: 42211742', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
@@ -197,8 +196,7 @@ INSERT INTO `terms` (`id`, `term`, `trans`, `defe`, `smiles_code`, `picture`, `u
 (122, 'PMID: 42206011', 'تقرير حالة عن تطور مثبط FVIII عالي العيار بعد العلاج الجيني بوساطة AAV في الهيموفيليا A.', 'Research ID: 42206011', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
 (123, 'PMID: 42064204', 'متانة الفعالية والسلامة وجودة الحياة بعد 5 سنوات من نقل جينات الفالوكتوكوجين روكسابارفوفيك لعلاج الهيموفيليا الوخيمة أ: المرحلة النهائية 3 نتائج تجربة GENer8-1.', 'Valoctocogene roxaparvovec، وهو علاج جيني للهيموفيليا الحادة A، يمكّن من التعبير عن العامل الثامن (FVIII) ويمنح التحكم في النزيف. ', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
 (124, 'PMID: 42061679', 'العلاقة بين النشاط اللوني للعامل الثامن ومستويات المستضد في المرضى الذين عولجوا بالعلاج الجيني المرتبط بالفيروس الغدي 5 للهيموفيليا أ.', 'العلاج الجيني للهيموفيليا A مع فالوكتوكوجين روكسابارفوفيك، وهو ناقل فيروس مرتبط بالعدوى (AAV) يشفر العامل المحذوف للمجال B (F) VIII، يتيح التعبير المستمر عن العامل VIII الداخلي وحماية النزيف على المدى الطويل. ', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
-(125, 'PMID: 42038313', 'العلاج الجيني غير الفيروسي للهيموفيليا أ: النتائج طويلة المدى لتسليم عامل التخثر الثامن (FVIII) على شكل دائرة صغيرة في نموذج الفأر.', 'الهيموفيليا A، وهو اضطراب نزيف مرتبط بالصبغي X ناجم عن نقص العامل الثامن (FVIII)، يستلزم علاجًا باستبدال العامل مدى الحياة مع عبء علاجي مرتفع. ', NULL, 'pic/ncbi_logo.png', 46, 'approved'),
-(126, '3443', '4343434', '334343434', '34343434', 'pic/ncbi_logo.png', 46, 'approved');
+(125, 'PMID: 42038313', 'العلاج الجيني غير الفيروسي للهيموفيليا أ: النتائج طويلة المدى لتسليم عامل التخثر الثامن (FVIII) على شكل دائرة صغيرة في نموذج الفأر.', 'الهيموفيليا A، وهو اضطراب نزيف مرتبط بالصبغي X ناجم عن نقص العامل الثامن (FVIII)، يستلزم علاجًا باستبدال العامل مدى الحياة مع عبء علاجي مرتفع. ', NULL, 'pic/ncbi_logo.png', 46, 'approved');
 
 -- --------------------------------------------------------
 
@@ -212,7 +210,7 @@ CREATE TABLE `upgrade_requests` (
   `request_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `reason` text NOT NULL,
   `status` enum('pending','accepted','rejected') DEFAULT 'pending'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -244,9 +242,10 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `username`, `passwor`, `role`, `otp_code`, `otp_expire`, `email`, `phone`, `delete_otp`, `delete_expire`, `login_attempts`, `last_attempt_time`, `pending_email`, `reset_code`, `reset_expire`, `pending_phone`) VALUES
-(46, 'rrr', '$2y$10$0N3uGpaZLBeNR7ESSSubyOHr3aVUR5AYAM3klte.Wdnr/lpGdYpL.', 'admin', '540520', '2026-04-04 06:04:13', 'diploma2017@outlook.com', '+201037284457', '892140', '2026-06-02 23:33:20', 0, '2026-05-20 08:15:37', NULL, NULL, '2026-06-02 23:42:02', '+201037284457'),
-(47, 'aaa', '$2y$10$.Zlhvwy0pd3dB7v8v48S0ue4rxTPU/d8Ar3VnSBeeseZNFvrTt7Me', 'admin', NULL, NULL, '29211260100998@cis.asu.edu.eg', '+201037284457', NULL, NULL, 0, NULL, NULL, NULL, NULL, '+201037284457'),
-(48, 'sss', '$2y$10$eY7o4gevWoUlaHORaVtZpuYocfqTgpNl7e/BtGdPin62LvOav6DFy', 'user', NULL, NULL, 'dergo2@outlook.com', '+201122663933', NULL, NULL, 0, '2026-06-02 05:05:13', NULL, NULL, NULL, NULL);
+(46, 'rrr', '$2y$10$TJ6xBPHTC3U8064lNkN4yeU1ld7okw/hwUPn9fBUWS47TwQDlPria', 'admin', '540520', '2026-04-04 06:04:13', 'diploma2017@outlook.com', '+201037284457', '892140', '2026-06-02 23:33:20', 0, '2026-05-20 08:15:37', NULL, NULL, NULL, '+201037284457'),
+(53, 'ttt', '$2y$10$1wQs07FcbOC/M/C9IQfxSOLDvF5UsuQNygx6j8RBVsu87goxBIr/2', 'user', NULL, NULL, 'abdelrhmand256@gmail.com', '+201037459258', NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL),
+(999, 'aaa', '$2y$10$.Zlhvwy0pd3dB7v8v48S0ue4rxTPU/d8Ar3VnSBeeseZNFvrTt7Me', 'admin', NULL, NULL, '29211260100998@cis.asu.edu.eg', '+201037284457', NULL, NULL, 0, NULL, NULL, NULL, NULL, '+201037284457'),
+(1000, 'sss', '$2y$10$eY7o4gevWoUlaHORaVtZpuYocfqTgpNl7e/BtGdPin62LvOav6DFy', 'user', NULL, NULL, 'dergo2@outlook.com', '+201122663933', NULL, NULL, 0, '2026-06-02 05:05:13', NULL, NULL, NULL, NULL);
 
 --
 -- Indexes for dumped tables
@@ -293,7 +292,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `failed_attempts`
 --
 ALTER TABLE `failed_attempts`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `sections`
@@ -305,7 +304,7 @@ ALTER TABLE `sections`
 -- AUTO_INCREMENT for table `terms`
 --
 ALTER TABLE `terms`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=127;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=134;
 
 --
 -- AUTO_INCREMENT for table `upgrade_requests`
@@ -317,7 +316,7 @@ ALTER TABLE `upgrade_requests`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=53;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1001;
 
 --
 -- Constraints for dumped tables
