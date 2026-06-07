@@ -23,18 +23,26 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # الآن، إذا كان ملف الـ database.db في نفس مجلد المشروع:
 db_path = os.path.join(BASE_DIR, "dbdictionary.db")
 
-# إذا كنت تريد التعامل مع المجلد الرئيسي للمشروع:
 project_root = BASE_DIR
+
+# إضافة ?charset=utf8mb4 لضمان توافق الترميز عبر كل الأنظمة
+charset_query = "?charset=utf8mb4"
+
 if db_pass:
-    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
+    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}{charset_query}"
 else:
-    # إذا كانت كلمة المرور فارغة، لا نضع النقطتين ":" بعد اسم المستخدم
-    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{db_user}@{db_host}/{db_name}"
+    SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{db_user}@{db_host}/{db_name}{charset_query}"
 
 print(f"Connecting to: {SQLALCHEMY_DATABASE_URL}")
 
-# ... باقي كود SQLAlchemy (engine, SessionLocal, إلخ)
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={
+        "charset": "utf8mb4",
+        "init_command": "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
+    }
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

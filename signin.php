@@ -11,30 +11,33 @@ if(isset($_POST['submit1'])){
     $passw = $_POST['pass'];
 
     if($usern !== "" && $passw !== ""){
-        // تحضير البيانات لإرسالها للـ API
+        // 1. تحضير البيانات لإرسالها للـ API
         $postData = http_build_query([
             'username' => $usern,
             'password' => $passw
         ]);
 
-        // إرسال الطلب للـ API (الذي قمت ببرمجته في main.py)
+        // 2. إعداد الاتصال بالـ API
         $ch = curl_init('http://127.0.0.1:8000/login/');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
         
+        // 3. التنفيذ
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $result = json_decode($response, true);
+        
+        // 4. إغلاق الاتصال فوراً
         curl_close($ch);
 
-        // التحقق من نجاح الاتصال بالـ API
+        // 5. التحقق من النتيجة
         if ($httpCode == 200 && isset($result['access_token'])) {
-            // نجاح: حفظ البيانات في الجلسة
-$_SESSION['access_token'] = $result['access_token'];
+            // حفظ التوكن
+            $_SESSION['access_token'] = $result['access_token'];
             $_SESSION['username'] = $usern;
             
-            // جلب الـ ID من قاعدة البيانات المحلية لربطه بالجلسة
+            // جلب الـ ID من القاعدة المحلية (لضمان توافق النظام القديم)
             $stmt = mysqli_prepare($connect, "SELECT id FROM users WHERE username=?");
             mysqli_stmt_bind_param($stmt, "s", $usern);
             mysqli_stmt_execute($stmt);
@@ -44,7 +47,6 @@ $_SESSION['access_token'] = $result['access_token'];
             header("Location: index.php");
             exit;
         } else {
-            // خطأ: الرسالة القادمة من الـ API أو خطأ اتصال
             $error = "❌ خطأ في الدخول: " . ($result['detail'] ?? "فشل الاتصال بالخادم");
         }
     } else {

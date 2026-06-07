@@ -21,8 +21,9 @@ class User(Base):
     phone = Column(String(20))
     login_attempts = Column(Integer, default=0)
     last_attempt_time = Column(DateTime)
-    pending_email = Column(String(255))
-    pending_phone = Column(String(20))
+    pending_name = Column(String(255), nullable=True)
+    pending_email = Column(String(255), nullable=True)
+    pending_phone = Column(String(255), nullable=True)
     upgrade_requests = relationship("UpgradeRequest", back_populates="user_obj")
 
 class Section(Base):
@@ -43,17 +44,21 @@ class Term(Base):
     picture = Column(String(255), default='yyy.jpg')
     user_id = Column(Integer)
     status = Column(String(20), default='pending')
-
 class OTP(Base):
     __tablename__ = "otp_codes"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    code = Column(String(10))           # للتحقق العام
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    code = Column(String(6))           # للتحقق العام
     expires_at = Column(DateTime)
-    delete_otp = Column(String(6))      # كود حذف الحساب
+    delete_otp = Column(String(6))
     delete_expire = Column(DateTime)
-    reset_code = Column(String(10))     # كود استعادة كلمة المرور
+    reset_code = Column(String(6))     # كود استعادة كلمة المرور
     reset_expire = Column(DateTime)
+    edit_code=Column(String(6)) 
+    edit_expire = Column(DateTime)
+
+   
 
 # يمكنك إضافة كلاسات أخرى مثل UpgradeRequest و FailedAttempts بنفس الطريقة
 

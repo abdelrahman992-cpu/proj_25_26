@@ -1,69 +1,61 @@
 <?php
 session_start();
-include("conn.php");
-include("validation.php");
+// لا تقم بتضمين conn.php لأننا لا نريد mysqli هنا
 
-// 1. حماية الصفحة
-if(!isset($_SESSION['user_id'])) { header("Location: signin.php"); exit; }
+if(!isset($_SESSION['access_token'])) { header("Location: signin.php"); exit; }
 
-$user_id = $_SESSION['user_id'];
-$message = "";
+// --- 1. تعريف $ch أولاً قبل استخدامه ---
+$api_url = "http://127.0.0.1:8000/users/me/";
+$ch = curl_init($api_url); 
 
-// 2. جلب البيانات الحالية
-$stmt = mysqli_prepare($connect, "SELECT username, email, phone FROM users WHERE id=?");
-mysqli_stmt_bind_param($stmt, "i", $user_id);
-mysqli_stmt_execute($stmt);
-$old_data = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+// --- 2. إعدادات الـ cURL ---
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $_SESSION['access_token'],
+    'Content-Type: application/json'
+]);
 
-// 3. معالجة التحديث (يجب أن تكون قبل تضمين أي HTML)
+// --- 3. التنفيذ ---
+$response = curl_exec($ch);
+$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch); // أغلق المقبض بعد الانتهاء
+
+// فك التشفير
+$old_data = ($http_code == 200) ? json_decode($response, true) : ['username' => 'خطأ في الاتصال', 'email' => '', 'phone' => ''];
+
+// --- معالجة الضغط على زر الحفظ ---
 if(isset($_POST['update_btn'])){
-    $new_username = sanStr($_POST['username']);
-    $new_email = sanStr($_POST['email']);
-    $new_phone = sanStr($_POST['phone']);
-
-    // أ. تحديث الاسم فوراً
-    if($new_username !== $old_data['username']){
-        $stmt = mysqli_prepare($connect, "UPDATE users SET username=? WHERE id=?");
-        mysqli_stmt_bind_param($stmt, "si", $new_username, $user_id);
-        mysqli_stmt_execute($stmt);
-        $_SESSION['username'] = $new_username;
-        $message = "✅ تم تحديث الاسم.";
-    }
-
-    // ب. معالجة الإيميل أو الهاتف
-    if($new_email !== $old_data['email'] || $new_phone !== $old_data['phone']){
-        $otp = random_int(100000, 999999);
-        $expire = date("Y-m-d H:i:s", strtotime("+5 minutes"));
-        
-        $stmt = mysqli_prepare($connect, "UPDATE users SET pending_email=?, pending_phone=?, reset_code=?, reset_expire=? WHERE id=?");
-        mysqli_stmt_bind_param($stmt, "ssssi", $new_email, $new_phone, $otp, $expire, $user_id);
-        mysqli_stmt_execute($stmt);
-        
-        // إرسال الكود (نرسله للميل كافتراضي حالياً)
-        sendOTPe($new_email, $otp, $sender_email, $sender_pass);
-        
-        $_SESSION['verify_type'] = ($new_email !== $old_data['email']) ? 'email' : 'phone';
-        
-        // الآن بما أننا لم نطبع HTML بعد، الـ header سيعمل بنجاح
-        header("Location: verify_change.php");
-        exit;
-    }
+    // إعادة تعريف $ch مرة أخرى لطلب التحديث
+    $ch_update = curl_init('http://127.0.0.1:8000/user/request-update/');
+    curl_setopt($ch_update, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch_update, CURLOPT_POST, true);
+    curl_setopt($ch_update, CURLOPT_POSTFIELDS, json_encode([
+        'new_name' => $_POST['username'],
+        'new_email' => $_POST['email'],
+        'new_phone' => $_POST['phone']
+    ]));
+    curl_setopt($ch_update, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $_SESSION['access_token'],
+        'Content-Type: application/json'
+    ]);
+    
+    curl_exec($ch_update);
+    curl_close($ch_update);
+    
+    header("Location: verify_change.php");
+    exit;
 }
-
-// 4. هنا فقط نقوم بتضمين التصميم (بعد انتهاء المعالجة)
-include("header.php");
 ?>
 
+<?php include("header.php"); ?>
 <h2>تعديل بيانات الحساب</h2>
-<p style="color:blue;"><?php echo $message; ?></p>
 <form method="post" action="">
     <label>اسم المستخدم:</label><br>
-    <input type="text" name="username" value="<?php echo htmlspecialchars($old_data['username']); ?>" required><br><br>
+    <input type="text" name="username" value="<?php echo htmlspecialchars($old_data['username'] ?? ''); ?>" required><br><br>
     <label>البريد الإلكتروني:</label><br>
-    <input type="email" name="email" value="<?php echo htmlspecialchars($old_data['email']); ?>" required><br><br>
+    <input type="email" name="email" value="<?php echo htmlspecialchars($old_data['email'] ?? ''); ?>" required><br><br>
     <label>رقم الهاتف:</label><br>
-    <input type="text" name="phone" value="<?php echo htmlspecialchars($old_data['phone']); ?>"><br><br>
+    <input type="text" name="phone" value="<?php echo htmlspecialchars($old_data['phone'] ?? ''); ?>"><br><br>
     <input type="submit" name="update_btn" value="حفظ التعديلات">
 </form>
-
-<?php include('footer.php'); ?>
+<?php include("footer.php"); ?>

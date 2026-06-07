@@ -17,8 +17,9 @@ from email.mime.text import MIMEText
 import os
 import platform
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
-# --- 1. تعريف دالة التحميل الذكي ---
+
 def smart_load_env():
     current_os = platform.system().lower()
     # اختيار الملف بناءً على النظام
@@ -39,8 +40,16 @@ EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 app = FastAPI()
 
-# ... (بقية الكود الخاص بك يبدأ من هنا)
-app = FastAPI()
+# ... (بقية الكود الخاص بك يبدأ من هنا
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- 1. تعريف دالة التحميل الذكي ---
 
 
 def send_email(to_email, code):
@@ -160,14 +169,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)
     return {"message": "تم إنشاء الحساب بنجاح"}
 # في ملف main.py
 
-# --- تعديل المستخدم (مُحمية) ---
-@app.put("/users/{user_id}")
-def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(database.get_db), current_user_id: int = Depends(auth.get_current_user)):
-    if user_id != current_user_id: raise HTTPException(status_code=403, detail="غير مسموح لك")
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    # ... تحديث
-    db.commit()
-    return {"message": "تم التعديل"}
+
 
 @app.post("/user/delete/")
 def delete_user(email: str, code: str, db: Session = Depends(database.get_db)):
@@ -281,4 +283,124 @@ def send_delete_otp(email: str, password: str, background_tasks: BackgroundTasks
     
     background_tasks.add_task(send_email, email, otp_code)
     return {"message": "تم إرسال الكود", "expires_at": expire_time.isoformat()}
+ # أضف هذا في main.py
+@app.get("/users/me/")
+def get_me(current_user: models.User = Depends(auth.get_current_user)):
+    return {
+        "username": current_user.username,
+        "email": current_user.email,
+        "phone": current_user.phone
+    }
+# --- تحديث البيانات (طلب الكود) ---
+@app.post("/user/request-update/")
+def request_user_update(
+    data: dict, 
+    background_tasks: BackgroundTasks, 
+    current_user: models.User = Depends(auth.get_current_user), 
+    db: Session = Depends(get_db)
+):
+    new_email = data.get("new_email")
+    new_phone = data.get("new_phone")
+    new_name = data.get("new_name")
     
+    # تصحيح المتغيرات هنا
+    code_val = generate_otp_code(6) 
+    expire_time = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5)
+    
+    new_otp = models.OTP(
+        user_id=current_user.id,
+        edit_code=code_val,
+        edit_expire=expire_time
+    )
+    db.add(new_otp)
+    
+    current_user.pending_email = new_email
+    current_user.pending_phone = new_phone
+    current_user.pending_name = new_name
+    
+    db.commit()
+    background_tasks.add_task(send_email, new_email, code_val)
+    return {"message": "تم إرسال كود التأكيد إلى إيميلك الجديد"}
+
+@app.post("/otp/change/")
+def change_otp(data: dict, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    input_code = data.get("code")
+    
+    # البحث عن السجل الذي يحتوي على الكود في عمود edit_code
+    otp_record = db.query(models.OTP).filter(
+        models.OTP.user_id == current_user.id,
+        models.OTP.edit_code == input_code
+    ).first()
+    
+    # 1. إذا لم يوجد سجل بهذا الكود
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="الكود غير موجود")
+
+    # 2. التحقق من انتهاء الصلاحية باستخدام عمود edit_expire
+    # نستخدم dt.datetime.now(dt.timezone.utc) لأن الـ DateTime في SQL غالباً ما يكون بـ UTC
+    if otp_record.edit_expire < dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
+        db.delete(otp_record)
+        db.commit()
+        raise HTTPException(status_code=400, detail="الكود منتهي الصلاحية")
+    
+    # 3. اعتماد البيانات المؤقتة (Pending)
+    if current_user.pending_email: current_user.email = current_user.pending_email
+    if current_user.pending_phone: current_user.phone = current_user.pending_phone
+    if current_user.pending_name: current_user.username = current_user.pending_name
+    
+    # تصفير البيانات المؤقتة
+    current_user.pending_email = None
+    current_user.pending_phone = None
+    current_user.pending_name = None
+    
+    # 4. حذف الكود والحفظ
+    db.delete(otp_record)
+    db.commit()
+    
+    return {"status": "success", "message": "تم التحديث بنجاح"}
+@app.post("/password/request-reset/")
+def request_password_reset(email: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="هذا البريد غير مسجل")
+
+    otp_code = generate_otp_code(6)
+    expire_time = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)
+
+    new_otp = models.OTP(
+        user_id=user.id,
+        reset_code=otp_code,
+        reset_expire=expire_time
+    )
+    db.add(new_otp)
+    db.commit()
+
+    background_tasks.add_task(send_email, email, otp_code)
+    return {"message": "تم إرسال كود إعادة تعيين كلمة المرور"}
+
+@app.post("/password/reset/")
+def reset_password(data: dict, db: Session = Depends(get_db)):
+    email = data.get("email")
+    code = data.get("code")
+    new_password = data.get("new_password")
+    
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="مستخدم غير موجود")
+
+    otp_record = db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.reset_code == code
+    ).first()
+
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="الكود غير صحيح")
+
+    user.passwor = get_password_hash(new_password)
+    db.delete(otp_record)
+    db.commit()
+    
+    return {"message": "تم تغيير كلمة المرور بنجاح"}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
