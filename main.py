@@ -1,12 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
-import models, schemas, database, auth  # <--- يجب إضافة auth هنا
+import models, schemas, database, auth
 import random
 from auth import get_current_user
 from models import UserRole 
 import bcrypt 
 from typing import Optional
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm # هذا السطر هو الذي كان ينقصك
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from auth import create_access_token
 import secrets
 import string
@@ -15,11 +15,33 @@ import datetime as dt
 import smtplib
 from email.mime.text import MIMEText
 import os
+import platform
 from dotenv import load_dotenv
-app = FastAPI()
-load_dotenv()
+
+# --- 1. تعريف دالة التحميل الذكي ---
+def smart_load_env():
+    current_os = platform.system().lower()
+    # اختيار الملف بناءً على النظام
+    target_env = "2.env" if current_os == "windows" else ".env"
+    
+    if os.path.exists(target_env):
+        load_dotenv(target_env)
+        print(f"--- النظام يعمل بـ: {target_env} ---")
+    else:
+        print(f"--- تحذير: ملف {target_env} غير موجود! ---")
+
+# --- 2. استدعاء الدالة أولاً ---
+smart_load_env()
+
+# --- 3. الآن تحميل المتغيرات بعد التأكد من وجودها ---
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+app = FastAPI()
+
+# ... (بقية الكود الخاص بك يبدأ من هنا)
+app = FastAPI()
+
 
 def send_email(to_email, code):
     if not EMAIL_USER or not EMAIL_PASS:
