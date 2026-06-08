@@ -18,6 +18,8 @@ import os
 import platform
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
+from auth import get_password_hash
+from pydantic import BaseModel
 
 
 def smart_load_env():
@@ -52,6 +54,17 @@ app.add_middleware(
 # --- 1. تعريف دالة التحميل الذكي ---
 
 
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+def get_current_user_id(token: str = Depends(oauth2_scheme)):
+    # هنا يجب أن تضع منطق فك التوكن الخاص بك
+    # وإرجاع الـ user_id
+    payload = decode_jwt(token) # دالة فك التوكن الخاصة بك
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="توكن غير صالح")
+    return int(user_id)
 def send_email(to_email, code):
     if not EMAIL_USER or not EMAIL_PASS:
         print("Error: Email credentials not found in .env")
@@ -149,28 +162,57 @@ def approve_term(term_id: int,
     db.commit()
     return {"message": "تمت الموافقة على المصطلح وعرضه للجمهور بنجاح"}
 
-@app.post("/users/")
-def create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
-    # 1. تشفير كلمة المرور باستخدام الدالة التي عرفتها في الأعلى
-    hashed_password = get_password_hash(user.passwor)
+
+# في أعلى ملف main.py (خارج الدوال)
+# هذا القاموس يحفظ الإيميل مقابل الكود لمدة 10 دقائق فقط
+otp_memory = {}
+
+@app.post("/otp/send-code/")
+def send_otp_code(data: dict, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db)):
+    email = data.get("email")
+    code = str(random.randint(100000, 999999))
     
-    # 2. إنشاء المستخدم الجديد مباشرة بالبيانات الصحيحة
-    new_user = models.User(
-        username=user.username, 
-        passwor=hashed_password,  # تأكد أن اسم العمود في موديل User هو passwor
-        role=models.UserRole.user
-    )
+    # حفظ الإيميل في الذاكرة مؤقتاً مربوطاً بالكود
+    otp_memory[code] = email 
     
-    # 3. حفظ في قاعدة البيانات
-    db.add(new_user)
+    # حفظ الكود في قاعدة البيانات (كما تفعل سابقاً)
+    expire_time = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)
+    new_otp = models.OTP(code=code, expires_at=expire_time)
+    db.add(new_otp)
     db.commit()
-    db.refresh(new_user)
+
+    background_tasks.add_task(send_email, email, code)
+    return {"message": "تم إرسال الكود"}
+@app.post("/users/finalize-signup/")
+def finalize_signup(data: dict, db: Session = Depends(database.get_db)):
+    code = data.get("code") # الكود الذي أدخله المستخدم
     
-    return {"message": "تم إنشاء الحساب بنجاح"}
-# في ملف main.py
+    # 1. البحث في قاعدة البيانات عن الكود
+    otp_record = db.query(models.OTP).filter(models.OTP.code == code).first()
 
+    # 2. التحقق من وجود الكود في الذاكرة (otp_memory)
+    email = otp_memory.get(code)
 
+    if not otp_record or not email:
+        # إذا لم يوجد في القاعدة أو الذاكرة
+        raise HTTPException(status_code=400, detail="❌ الكود غير صحيح أو انتهت صلاحيته.")
 
+    # 3. إنشاء المستخدم
+    new_user = models.User(
+        username=data.get("username"),
+        passwor=get_password_hash(data.get("password")),
+        email=email,
+        phone=data.get("phone")
+    )
+    db.add(new_user)
+    
+    # 4. تنظيف
+    db.delete(otp_record)
+    if code in otp_memory:
+        del otp_memory[code]
+    db.commit()
+    
+    return {"status": "success", "message": "تم إنشاء الحساب بنجاح"}
 @app.post("/user/delete/")
 def delete_user(email: str, code: str, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == email).first()
@@ -261,13 +303,17 @@ def get_terms(term_id: Optional[int] = None, db: Session = Depends(database.get_
 @app.get("/terms/public/")
 def get_public_terms(db: Session = Depends(database.get_db)):
     return db.query(models.Term).filter(models.Term.status == 'approved').all()
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+class DeleteData(BaseModel):
+    email: str
+    password: str
+
 @app.post("/otp/send-delete/")
-def send_delete_otp(email: str, password: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user or not verify_password(password, user.passwor):
+def send_delete_otp(data: DeleteData, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    # استخدم data.email و data.password بدلاً من المتغيرات المنفصلة
+    user = db.query(models.User).filter(models.User.email == data.email).first()
+    
+    if not user or not verify_password(data.password, user.passwor):
         raise HTTPException(status_code=400, detail="كلمة المرور غير صحيحة")
     
     otp_code = generate_otp_code(6)
@@ -281,7 +327,9 @@ def send_delete_otp(email: str, password: str, background_tasks: BackgroundTasks
     db.add(new_otp)
     db.commit()
     
-    background_tasks.add_task(send_email, email, otp_code)
+    # هنا الخطأ: استخدم data.email وليس email
+    background_tasks.add_task(send_email, data.email, otp_code)
+    
     return {"message": "تم إرسال الكود", "expires_at": expire_time.isoformat()}
  # أضف هذا في main.py
 @app.get("/users/me/")
@@ -380,8 +428,8 @@ def request_password_reset(email: str, background_tasks: BackgroundTasks, db: Se
 
 @app.post("/password/reset/")
 def reset_password(data: dict, db: Session = Depends(get_db)):
-    email = data.get("email")
-    code = data.get("code")
+    email = data.get("email") # يبحث عنها داخل الـ JSON Body
+    code = data.get("code")   # يبحث عنها داخل الـ JSON Body
     new_password = data.get("new_password")
     
     user = db.query(models.User).filter(models.User.email == email).first()
@@ -401,6 +449,46 @@ def reset_password(data: dict, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": "تم تغيير كلمة المرور بنجاح"}
+@app.post("/password/modifypa-otp/")
+def modifypa_otp(data: dict, db: Session = Depends(get_db)):
+    email = data.get("email")
+    otp_input = data.get("code")
+    
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="مستخدم غير موجود")
+
+    otp_record = db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.reset_code == otp_input
+    ).first()
+
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="❌ الكود غير صحيح")
+
+    expire_time = otp_record.reset_expire
+    
+    # معالجة التوقيت لتجنب خطأ offset-naive vs offset-aware
+    if expire_time.tzinfo is None:
+        expire_time = expire_time.replace(tzinfo=dt.timezone.utc)
+
+    if expire_time < dt.datetime.now(dt.timezone.utc):
+        raise HTTPException(status_code=400, detail="❌ الكود منتهي الصلاحية")
+
+    return {"status": "success", "message": "الكود صحيح"}
+    # في main.py
+@app.get("/users/mee/")
+def get_user_profile(current_user: models.User = Depends(get_current_user)):
+    # التأكد من جلب البيانات
+    data = {
+        "username": current_user.username,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "role": str(current_user.role.value) if hasattr(current_user.role, 'value') else str(current_user.role)
+    }
+    # طباعة البيانات في التيرمينال للتأكد من وصولها من قاعدة البيانات
+    print(f"DEBUG: Data to be sent to PHP: {data}")
+    return data
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

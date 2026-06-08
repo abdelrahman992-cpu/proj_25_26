@@ -13,10 +13,10 @@ class UserRole(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(30), nullable=False)
+    id = Column(Integer, primary_key=True)
+    username = Column(String(255)) # عدلها لتطابق MySQL
     passwor = Column(String(255))
-    role = Column(Enum(UserRole), default=UserRole.user)
+    role = Column(Enum("admin", "user"), default="user") # تأكد من نوع الـ Enum
     email = Column(String(255))
     phone = Column(String(20))
     login_attempts = Column(Integer, default=0)
@@ -25,6 +25,8 @@ class User(Base):
     pending_email = Column(String(255), nullable=True)
     pending_phone = Column(String(255), nullable=True)
     upgrade_requests = relationship("UpgradeRequest", back_populates="user_obj")
+
+    
 
 class Section(Base):
     __tablename__ = "sections"
@@ -46,7 +48,6 @@ class Term(Base):
     status = Column(String(20), default='pending')
 class OTP(Base):
     __tablename__ = "otp_codes"
-    
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer)
     code = Column(String(6))           # للتحقق العام
@@ -57,6 +58,7 @@ class OTP(Base):
     reset_expire = Column(DateTime)
     edit_code=Column(String(6)) 
     edit_expire = Column(DateTime)
+
 
    
 

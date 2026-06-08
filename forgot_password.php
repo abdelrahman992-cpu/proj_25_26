@@ -4,7 +4,7 @@ include("conn.php");
 $error = "";
 $success = "";
 
-// 1. معالجة طلب إرسال الكود
+
 if(isset($_POST['submit'])) {
     $input = trim($_POST['email']); 
     
@@ -20,7 +20,7 @@ if(isset($_POST['submit'])) {
         $user_name = $row['username'];
 
         // الاتصال بالـ API
-        $result_api = callAPI("POST", "/otp/send/?email=" . urlencode($user_email));
+        $result_api = callAPI("POST", "/password/request-reset/?email=" . urlencode($user_email));
         
         // التحقق من الرد
         if(isset($result_api['message'])) {
@@ -41,38 +41,32 @@ if(isset($_POST['submit'])) {
         $error = "❌ المستخدم غير موجود.";
     }
 }
+if(isset($_POST['submito'])) {
+    $email = trim($_SESSION['reset_email']);
+    $otp_input = trim($_POST['ottp']);
+    
+    // إرسال البيانات للتحقق فقط
+    $postData = [
+        'email' => $email,
+        'code' => $otp_input
+    ];
 
-if(isset($_POST['submito'])){
-    if(isset($_POST['ottp']) && isset($_POST['email'])){
-        $email = trim($_POST['email']);
-        $otp_input = trim($_POST['ottp']);
-
-        if(!preg_match('/^[0-9]{6}$/', $otp_input)){
-            $error = "❌ OTP غير صالح";
-        } else {
-            // التحقق من الحظر
-            if (function_exists('getFailedAttemptsCount') && getFailedAttemptsCount($connect) >= 5) {
-                die("❌ لقد تجاوزت عدد المحاولات المسموح بها. يرجى الانتظار 15 دقيقة.");
-            }
-
-            $result = callAPI("POST", "/otp/verify/?email=" . urlencode($email) . "&code=" . urlencode($otp_input));
-
-            if(isset($result['status']) && $result['status'] == 'success') {
-                $_SESSION['reset_user'] = $email;
-                unset($_SESSION['reset_email']);
-                header("Location: reset_password.php");
-                exit;
-            } else {
-                if (function_exists('logFailedAttempt')) {
-                    logFailedAttempt($connect);
-                }
-                $error = $result['detail'] ?? "❌ الكود غير صحيح أو منتهي الصلاحية.";
-            }
-        }
+    // استدعاء دالة التحقق الجديدة في main.py
+    $result = callAPI("POST", "/password/modifypa-otp/", $postData); 
+    
+    // التحقق من أن الرد يحتوي على status: success
+    if(isset($result['status']) && $result['status'] == 'success') {
+        // التحقق ناجح: نحفظ الإيميل في الجلسة وننتقل لصفحة تعيين كلمة المرور
+        $_SESSION['reset_user'] = $email; 
+        unset($_SESSION['reset_email']); // تنظيف الجلسة
+        header("Location: reset_password.php"); 
+        exit;
+    } else {
+        // عرض رسالة الخطأ القادمة من الـ API
+        $error = $result['detail'] ?? "❌ الكود غير صحيح أو منتهي الصلاحية.";
     }
 }
 
-// استدعاء الهيدر
 include("header.php");
 ?>
 
@@ -83,9 +77,7 @@ include("header.php");
 </head>
 <body>
 
-<div>
-    مرحبا <?php echo htmlspecialchars($_SESSION['username'] ?? "زائر"); ?>
-</div>
+
 
 <h2>استعادة كلمة المرور</h2>
 

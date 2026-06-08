@@ -1,70 +1,62 @@
 <?php
-ob_start(); // هام جداً لتجنب مشاكل الـ Headers
+ob_start();
 session_start();
 include("conn.php");
-include("validation.php"); // تأكد أنها تحتوي على دالة sendOTP
-include("header.php"); // اختياري حسب تصميم موقعك
+include("header.php");
 
 $error = "";
 $success = "";
+$remaining_time = 0; // تعريف أولي لتجنب الخطأ
 
 // 1. التحقق من وجود الجلسة
-if(empty($_SESSION['otp_user'])){
+$email = isset($_SESSION['otp_email']) ? $_SESSION['otp_email'] : null;
+
+if(empty($_SESSION['otp_user']) || !$email){
     $error = "❌ لا يوجد مستخدم للتحقق منه. الرجاء تسجيل حسابك أولاً.";
 }
 
-// 2. معالجة زر التأكيد
 if(isset($_POST['verify']) && empty($error)){
     $code = trim($_POST['code']);
-
-    if(!preg_match('/^[0-9]{6}$/', $code)){
-        $error = "❌ الكود يجب أن يتكون من 6 أرقام.";
+    
+    // تأكد أن الجلسة تحتوي على البيانات
+    if(!isset($_SESSION['temp_user_data'])) {
+        $error = "❌ انتهت الجلسة، يرجى التسجيل مرة أخرى.";
     } else {
-        $user = $_SESSION['otp_user'];
-        $stmt = mysqli_prepare($connect, "SELECT id FROM users WHERE username=? AND otp_code=? AND otp_expire > NOW()");
-        mysqli_stmt_bind_param($stmt, "ss", $user, $code);
-        mysqli_stmt_execute($stmt);
-        $res = mysqli_stmt_get_result($stmt);
+        $finalData = $_SESSION['temp_user_data'];
+        
+        // --- هذا هو السطر المفقود ---
+        $finalData['code'] = $code; 
+        // ---------------------------
 
-        if(mysqli_num_rows($res) == 1){
-            // مسح الكود بعد التحقق الناجح
-            $stmt2 = mysqli_prepare($connect, "UPDATE users SET otp_code=NULL, otp_expire=NULL WHERE username=?");
-            mysqli_stmt_bind_param($stmt2, "s", $user);
-            mysqli_stmt_execute($stmt2);
-            
-            unset($_SESSION['otp_user']);
+        $result = callAPI("POST", "/users/finalize-signup/", $finalData);
+        
+        if(isset($result['status']) && $result['status'] == 'success') {
+            unset($_SESSION['temp_user_data']); // تأكد من حذف الجلسة المؤقتة أيضاً
+            unset($_SESSION['otp_email']);
             header("Location: index.php");
             exit;
         } else {
-            $error = "❌ الكود غير صحيح أو انتهت صلاحيته.";
+            // نستخدم $result['detail'] التي تأتي من FastAPI إذا حدث خطأ
+            $error = $result['detail'] ?? "❌ الكود غير صحيح أو انتهت صلاحيته.";
         }
     }
 }
 
-// 3. حساب الوقت المتبقي
-$remaining_time = 0;
-if(!empty($_SESSION['otp_user'])){
-    $username = $_SESSION['otp_user'];
-    $stmt = mysqli_prepare($connect, "SELECT otp_expire FROM users WHERE username=?");
-    mysqli_stmt_bind_param($stmt, "s", $username);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    $row = mysqli_fetch_assoc($result);
+// 3. إعادة إرسال الكود
+if(isset($_POST['resend_otp']) && !empty($_SESSION['otp_user'])){
+    if($email){
+        $postData = ['email' => $email];
+        $result = callAPI("POST", "/otp/send-code/", $postData);
 
-    if($row && $row['otp_expire']){
-        $remaining_time = strtotime($row['otp_expire']) - time();
-        if($remaining_time < 0) $remaining_time = 0;
+        if(isset($result['message'])) {
+            $success = "📧 " . $result['message'];
+            header("Refresh: 2"); 
+        } else {
+            $error = "❌ فشل إعادة إرسال الكود: " . ($result['detail'] ?? "خطأ غير معروف");
+        }
     }
 }
-
-// 4. إعادة إرسال الكود
-if(isset($_POST['resend_otp']) && !empty($_SESSION['otp_user'])){
-    // (نفس منطقك السابق وهو سليم 100%)
-    // ... تأكد من جلب الإيميل وإرسال الـ OTP
-    $success = "📧 تم إرسال كود جديد إلى بريدك الإلكتروني.";
-}
 ?>
-
 <div class="container mt-5">
     <div class="card shadow-sm" style="max-width: 500px; margin: auto;">
         <div class="card-body">
@@ -88,9 +80,9 @@ if(isset($_POST['resend_otp']) && !empty($_SESSION['otp_user'])){
         </div>
     </div>
 </div>
-
 <script>
-let timeLeft = <?php echo $remaining_time; ?>;
+// تأكدنا هنا أن المتغير رقم صحيح
+let timeLeft = <?php echo (int)$remaining_time; ?>;
 let timer = document.getElementById("timer");
 let resendForm = document.getElementById("resendForm");
 

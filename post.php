@@ -1,52 +1,46 @@
+<?php
+$token = $_SESSION['access_token'] ?? null;
+$user = callAPI("GET", "/users/mee/", false, $token); // المسار الذي أنشأناه في الخطوة 1
 
+if (isset($user['username'])) {
+    $_SESSION['username'] = $user['username'];
+    $_SESSION['email']    = $user['email'];
+    $_SESSION['phone']    = $user['phone'];
+    $_SESSION['role']     = $user['role'];
+} else {
+    // إذا لم ينجح الجلب، ربما التوكن انتهى أو المستخدم غير مسجل
+    $error = "❌ فشل جلب بيانات المستخدم.";
+}
 
-  <?php
-  $stmt = mysqli_prepare($connect, 
-    "SELECT id, username, email, phone ,role FROM users WHERE id=?");
-
-    mysqli_stmt_bind_param($stmt, "i", $_SESSION['user_id']);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-
-    if($row = mysqli_fetch_assoc($result)){
-        $_SESSION['username'] = $row['username'];
-        $_SESSION['email'] = $row['email'];
-        $_SESSION['phone'] = $row['phone'];
-                $_SESSION['role'] = $row['role'];
-    }
-
-    mysqli_stmt_close($stmt);
-
-
+// 2. معالجة الحذف (كما هي مع تعديل بسيط للـ API)
 if (isset($_POST['deleteAccount'])) {
     $pass = $_POST['password'];
     $email = $_SESSION['email'];
+    $token = $_SESSION['access_token']; // تأكد من جلب التوكن هنا
 
-    // نرسل الإيميل وكلمة المرور للـ API
-    $result = callAPI("POST", "/otp/send-delete/?email=" . urlencode($email) . "&password=" . urlencode($pass));
+    $postData = ['email' => $email, 'password' => $pass];
+    
+    // مرر التوكن للدالة هنا أيضاً
+    $result = callAPI("POST", "/otp/send-delete/", $postData, $token); 
 
     if (isset($result['message'])) {
         $_SESSION['delete_user'] = $_SESSION['user_id'];
         header("Location: confirm_delete.php");
         exit;
     } else {
-        // عرض الخطأ القادم من الـ API (مثل "كلمة المرور غير صحيحة")
+        // طباعة الخطأ الفعلي القادم من البايثون
         $error = "❌ " . ($result['detail'] ?? "فشل إرسال كود الحذف");
     }
 }
+?>
 
-echo ("مرحبا") . " " .htmlspecialchars($_SESSION['username'] ?? "");
-echo "<br>";
-echo ("البريد الالكتروني") . " : " . $_SESSION['email'];
-echo "<br>";
-echo ("رقم الهاتف") . " : " . $_SESSION['phone'];
-echo "<br>";
-echo ("الدور") . " : " . $_SESSION['role'];
-
-    if (!empty($error)) {
-        echo "<p style='color:red;'>$error</p>";
-    }
-
+<?php if (isset($user)) : ?>
+    مرحبا: <?php echo htmlspecialchars($_SESSION['username'] ?? ""); ?><br>
+    البريد الالكتروني: <?php echo htmlspecialchars($_SESSION['email'] ?? ""); ?><br>
+    رقم الهاتف: <?php echo htmlspecialchars($_SESSION['phone'] ?? ""); ?><br>
+    الدور: <?php echo htmlspecialchars($_SESSION['role'] ?? ""); ?><br>
+<?php endif; ?>
+<?php
     echo '
     <form method="post" onsubmit="return confirm(\'هل أنت متأكد من حذف الحساب؟\')">
         <label>'. "ادخل كلمة المرور لتأكيد حذف الحساب".'</label><br>
@@ -55,4 +49,3 @@ echo ("الدور") . " : " . $_SESSION['role'];
     </form>
     ';
 ?>
-

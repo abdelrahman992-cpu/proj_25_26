@@ -11,27 +11,31 @@ header("Cache-Control: no-store, no-cache, must-revalidate");
 header("Pragma: no-cache");
 header("Expires: 0");
 function callAPI($method, $url, $data = false, $token = null) {
-    $curl = curl_init();
+    $curl = curl_init("http://127.0.0.1:8000" . $url);
     
-    $options = [
-        CURLOPT_URL => "http://127.0.0.1:8000" . $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST => $method,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json']
-    ];
-
+    // إعداد الـ Headers الأساسية
+    $headers = ['Content-Type: application/json'];
     if ($token) {
-        $options[CURLOPT_HTTPHEADER][] = "Authorization: Bearer " . $token;
+        $headers[] = "Authorization: Bearer " . $token;
     }
 
-    if ($data) {
-        $options[CURLOPT_POSTFIELDS] = json_encode($data);
+    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($curl, CURLOPT_CUSTOMREQUEST, $method);
+    curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+
+    if ($method == "POST" && $data) {
+        curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
     }
 
-    curl_setopt_array($curl, $options);
     $response = curl_exec($curl);
-    curl_close($curl);
     
+    // إضافة فحص للخطأ البرمجي
+    if (curl_errno($curl)) {
+        return ['error' => curl_error($curl)];
+    }
+    
+    curl_close($curl);
     return json_decode($response, true);
 }
+
 ?>

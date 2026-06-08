@@ -8,6 +8,8 @@ include("header.php");
 $errors = []; 
 $success = "";
 
+
+
 if(isset($_POST['Submit1'])){
     $txt_user = sanStr(trim($_POST['txt_user']));
     $txt_pass = $_POST['txt_pass'];
@@ -26,42 +28,27 @@ if(isset($_POST['Submit1'])){
         $errors[] = "رقم الهاتف غير صحيح (مثال: +201234567890).";
     }
 
-    // 2. التحقق من وجود المستخدم مسبقاً
-    if(empty($errors)){
-        $stmt = mysqli_prepare($connect, "SELECT id FROM users WHERE phone=? OR email=?");
-        mysqli_stmt_bind_param($stmt, "ss", $phone, $email);
-        mysqli_stmt_execute($stmt);
-        $res = mysqli_stmt_get_result($stmt);
-        
-        if(mysqli_num_rows($res) > 0){
-            $errors[] = "عذراً، البريد الإلكتروني أو رقم الهاتف مستخدم بالفعل.";
-        }
-    }
 
-    // 3. التنفيذ (INSERT)
-    if(empty($errors)){
-        $hashed_pass = password_hash($txt_pass, PASSWORD_DEFAULT);
-        $otp = random_int(100000, 999999); 
-        $expire = date("Y-m-d H:i:s", strtotime("+5 minutes"));
+   if(empty($errors)){
+        // 1. تخزين بيانات المستخدم مؤقتاً في الجلسة لكي نستخدمها لاحقاً في verify.php
+        $_SESSION['temp_user_data'] = [
+            'username' => $txt_user,
+            'password' => $txt_pass,
+            'email'    => $email,
+            'phone'    => $phone
+        ];
+        $_SESSION['otp_email'] = $email;
 
-        $sql = "INSERT INTO users(username, passwor, email, phone, otp_code, otp_expire) VALUES(?,?,?,?,?,?)";
-        $stmt = mysqli_prepare($connect, $sql);
-        mysqli_stmt_bind_param($stmt, "ssssss", $txt_user, $hashed_pass, $email, $phone, $otp, $expire);
+        // 2. استدعاء دالة إرسال الكود فقط
+        $postData = ['email' => $email]; 
+        $result = callAPI("POST", "/otp/send-code/", $postData);
 
-        if(mysqli_stmt_execute($stmt)){
-            $user_id = mysqli_insert_id($connect);
-            $_SESSION['user_id'] = $user_id;
-            $_SESSION['username'] = $txt_user;
-            
-            // إرسال الـ OTP
-            sendOTP($email, $otp, $sender_email, $sender_pass);
-            
-            $success = "📧 تم إنشاء الحساب بنجاح! سيتم تحويلك لصفحة التحقق...";
- // داخل reg.php بعد تنفيذ الـ INSERT بنجاح:
-$_SESSION['otp_user'] = $txt_user; // تأكد من هذا السطر
-echo "<script>setTimeout(function(){ window.location.href='verify.php'; }, 3000);</script>";
+        // 3. التحقق من نجاح إرسال الكود
+        if(isset($result['message'])) {
+            $success = "📧 " . $result['message'] . " سيتم تحويلك لصفحة التحقق...";
+            echo "<script>setTimeout(function(){ window.location.href='verify.php'; }, 3000);</script>";
         } else {
-            $errors[] = "حدث خطأ أثناء التسجيل، حاول مجدداً.";
+            $errors[] = $result['detail'] ?? "حدث خطأ أثناء إرسال كود التحقق.";
         }
     }
 }

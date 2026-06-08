@@ -13,7 +13,9 @@ class TermSchema(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    passwor: str
+    passwor: str  # تأكد من تطابق الاسم مع ما ترسله
+    email: str    # تأكد أن هذا الحقل موجود هنا
+    phone: str    # تأكد أن هذا الحقل موجود هنا
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
