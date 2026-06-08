@@ -1,6 +1,11 @@
 <?php
 $token = $_SESSION['access_token'] ?? null;
-$user = callAPI("GET", "/users/mee/", false, $token); // المسار الذي أنشأناه في الخطوة 1
+
+// نجلب البيانات مرة واحدة فقط من المسار الصحيح والموجود
+$user = callAPI("GET", "/users/mee/", false, $token); 
+
+
+
 
 if (isset($user['username'])) {
     $_SESSION['username'] = $user['username'];
@@ -8,11 +13,9 @@ if (isset($user['username'])) {
     $_SESSION['phone']    = $user['phone'];
     $_SESSION['role']     = $user['role'];
 } else {
-    // إذا لم ينجح الجلب، ربما التوكن انتهى أو المستخدم غير مسجل
     $error = "❌ فشل جلب بيانات المستخدم.";
 }
 
-// 2. معالجة الحذف (كما هي مع تعديل بسيط للـ API)
 if (isset($_POST['deleteAccount'])) {
     $pass = $_POST['password'];
     $email = $_SESSION['email'];
@@ -42,13 +45,12 @@ if (isset($_POST['deleteAccount'])) {
                     <h4 class="card-title mb-4">الملف الشخصي</h4>
                     
                     <?php if (isset($user)) : ?>
-                        <div class="text-right d-inline-block">
-                            <p><strong>مرحباً:</strong> <span class="notranslate"><?php echo htmlspecialchars($_SESSION['username'] ?? ""); ?></span></p>
-                            <p><strong>البريد الالكتروني:</strong> <span class="notranslate"><?php echo htmlspecialchars($_SESSION['email'] ?? ""); ?></span></p>
-                            <p><strong>رقم الهاتف:</strong> <?php echo htmlspecialchars($_SESSION['phone'] ?? ""); ?></p>
-                            <p><strong>الدور:</strong> <?php echo htmlspecialchars($_SESSION['role'] ?? ""); ?></p>
-                        </div>
-                    <?php endif; ?>
+  <div class="profile-info">
+    <p>مرحباً: <?php echo htmlspecialchars($user['username'] ?? $_SESSION['username']); ?></p>
+    <p>البريد الالكتروني: <?php echo htmlspecialchars($user['email'] ?? 'غير متوفر'); ?></p>
+    <p>رقم الهاتف: <?php echo htmlspecialchars($user['phone'] ?? 'غير متوفر'); ?></p>
+    <p>الدور: <?php echo htmlspecialchars($user['role'] ?? 'مستخدم'); ?></p>
+</div>            <?php endif; ?>
 
                     <hr>
 

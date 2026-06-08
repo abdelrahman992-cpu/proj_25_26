@@ -498,16 +498,19 @@ def modifypa_otp(data: dict, db: Session = Depends(get_db)):
     # في main.py
 @app.get("/users/mee/")
 def get_user_profile(current_user: models.User = Depends(get_current_user)):
-    # التأكد من جلب البيانات
-    data = {
+    # تأكد أن الـ role يتم تحويله إلى نص بسيط (String)
+    role_str = str(current_user.role.value) if hasattr(current_user.role, 'value') else str(current_user.role)
+    
+    response_data = {
         "username": current_user.username,
         "email": current_user.email,
         "phone": current_user.phone,
-        "role": str(current_user.role.value) if hasattr(current_user.role, 'value') else str(current_user.role)
+        "role": role_str
     }
-    # طباعة البيانات في التيرمينال للتأكد من وصولها من قاعدة البيانات
-    print(f"DEBUG: Data to be sent to PHP: {data}")
-    return data
+    
+    print(f"DEBUG: Data sent to PHP: {response_data}")
+    return response_data
+    
 @app.get("/terms/user/{user_id}")
 def get_user_terms(user_id: int, db: Session = Depends(get_db)):
     terms = db.query(models.Term).filter(models.Term.user_id == user_id).order_by(models.Term.id.desc()).all()
