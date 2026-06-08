@@ -9,10 +9,11 @@ if(empty($_SESSION['user_id'])){
 }
 
 $my_id = $_SESSION['user_id'];
-// جلب مصطلحاتي فقط
-$query = mysqli_query($connect, "SELECT * FROM terms WHERE user_id = $my_id ORDER BY id DESC");
-?>
 
+// استدعاء الـ API بدلاً من SQL
+// نفترض أن دالة callAPI تقوم بإرسال طلب GET
+$terms = callAPI("GET", "/terms/user/" . $my_id);
+?>
 <div class="container mt-4">
     <h2 class="text-right">📜 سجل المصطلحات الخاصة بي</h2>
     <table class="table table-bordered text-center mt-4">
@@ -24,7 +25,11 @@ $query = mysqli_query($connect, "SELECT * FROM terms WHERE user_id = $my_id ORDE
             </tr>
         </thead>
         <tbody>
-            <?php while($row = mysqli_fetch_assoc($query)): ?>
+            <?php 
+            // التحقق من أن النتيجة مصفوفة وليست خطأ
+            if(is_array($terms) && !isset($terms['detail'])): 
+                foreach($terms as $row): 
+            ?>
             <tr>
                 <td><?= htmlspecialchars($row['term']) ?></td>
                 <td><?= $row['created_at'] ?? '---' ?></td>
@@ -36,7 +41,12 @@ $query = mysqli_query($connect, "SELECT * FROM terms WHERE user_id = $my_id ORDE
                     ?>
                 </td>
             </tr>
-            <?php endwhile; ?>
+            <?php 
+                endforeach; 
+            else:
+                echo "<tr><td colspan='3'>لا توجد مصطلحات أو حدث خطأ في الاتصال.</td></tr>";
+            endif; 
+            ?>
         </tbody>
     </table>
 </div>

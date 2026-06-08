@@ -34,18 +34,34 @@ if (isset($_POST['deleteAccount'])) {
 }
 ?>
 
-<?php if (isset($user)) : ?>
-    مرحبا: <?php echo htmlspecialchars($_SESSION['username'] ?? ""); ?><br>
-    البريد الالكتروني: <?php echo htmlspecialchars($_SESSION['email'] ?? ""); ?><br>
-    رقم الهاتف: <?php echo htmlspecialchars($_SESSION['phone'] ?? ""); ?><br>
-    الدور: <?php echo htmlspecialchars($_SESSION['role'] ?? ""); ?><br>
-<?php endif; ?>
-<?php
-    echo '
-    <form method="post" onsubmit="return confirm(\'هل أنت متأكد من حذف الحساب؟\')">
-        <label>'. "ادخل كلمة المرور لتأكيد حذف الحساب".'</label><br>
-        <input type="password" name="password" required><br><br>
-<input type="submit" name="deleteAccount" value="'."حذف الحساب".'">
-    </form>
-    ';
-?>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-lg p-3 mb-5 bg-white rounded">
+                <div class="card-body text-center">
+                    <h4 class="card-title mb-4">الملف الشخصي</h4>
+                    
+                    <?php if (isset($user)) : ?>
+                        <div class="text-right d-inline-block">
+                            <p><strong>مرحباً:</strong> <span class="notranslate"><?php echo htmlspecialchars($_SESSION['username'] ?? ""); ?></span></p>
+                            <p><strong>البريد الالكتروني:</strong> <span class="notranslate"><?php echo htmlspecialchars($_SESSION['email'] ?? ""); ?></span></p>
+                            <p><strong>رقم الهاتف:</strong> <?php echo htmlspecialchars($_SESSION['phone'] ?? ""); ?></p>
+                            <p><strong>الدور:</strong> <?php echo htmlspecialchars($_SESSION['role'] ?? ""); ?></p>
+                        </div>
+                    <?php endif; ?>
+
+                    <hr>
+
+                    <form method="post" onsubmit="return confirm('هل أنت متأكد من حذف الحساب؟')" class="mt-3">
+                        <div class="form-group">
+                            <label class="font-weight-bold">ادخل كلمة المرور لتأكيد حذف الحساب:</label>
+                            <input type="password" name="password" class="form-control text-center" required>
+                        </div>
+                        <button type="submit" name="deleteAccount" class="btn btn-danger btn-block mt-3">حذف الحساب</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+

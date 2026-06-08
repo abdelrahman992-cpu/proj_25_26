@@ -491,6 +491,14 @@ def get_user_profile(current_user: models.User = Depends(get_current_user)):
     # طباعة البيانات في التيرمينال للتأكد من وصولها من قاعدة البيانات
     print(f"DEBUG: Data to be sent to PHP: {data}")
     return data
+@app.get("/terms/user/{user_id}")
+def get_user_terms(user_id: int, db: Session = Depends(get_db)):
+    terms = db.query(models.Term).filter(models.Term.user_id == user_id).order_by(models.Term.id.desc()).all()
+    # تحويل البيانات إلى تنسيق مصفوفة يمكن لـ PHP استهلاكه
+    return [
+        {"term": t.term,  "status": t.status} 
+        for t in terms
+    ]
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

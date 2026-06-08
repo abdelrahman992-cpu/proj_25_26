@@ -17,6 +17,7 @@
 <div>
 
   <?php
+  include("conn.php");
 include("header.php");
 
 if(!empty($_SESSION['user_id'])){

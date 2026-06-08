@@ -9,12 +9,13 @@ $success = "";
 $remaining_time = 0; // تعريف أولي لتجنب الخطأ
 
 // 1. التحقق من وجود الجلسة
+/*
 $email = isset($_SESSION['otp_email']) ? $_SESSION['otp_email'] : null;
 
 if(empty($_SESSION['otp_user']) || !$email){
     $error = "❌ لا يوجد مستخدم للتحقق منه. الرجاء تسجيل حسابك أولاً.";
 }
-
+*/
 if(isset($_POST['verify']) && empty($error)){
     $code = trim($_POST['code']);
     
