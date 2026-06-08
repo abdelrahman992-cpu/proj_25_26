@@ -113,13 +113,30 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return {"access_token": access_token, "token_type": "bearer"}
 # --- دوال تشفير ومقارنة كلمات المرور ---
 
-@app.put("/terms/{term_id}")
-def update_term(term_id: int, term_data: schemas.TermSchema, db: Session = Depends(database.get_db)):
+@app.put("/terms/update") # حذفنا /{term_id} من الرابط
+def update_term(data: dict, db: Session = Depends(get_db)):
+    # استخراج الـ ID من البيانات المرسلة
+    term_id = data.get('id')
+    
+    if not term_id:
+        raise HTTPException(status_code=400, detail="ID مفقود")
+
     term = db.query(models.Term).filter(models.Term.id == term_id).first()
-    if not term: raise HTTPException(status_code=404, detail="غير موجود")
-    term.term, term.trans, term.defe = term_data.term, term_data.trans, term_data.defe
+    if not term:
+        raise HTTPException(status_code=404, detail="المصطلح غير موجود")
+    
+    # تحديث البيانات
+    term.term = data.get('term', term.term)
+    term.trans = data.get('trans', term.trans)
+    term.defe = data.get('defe', term.defe)
+    term.smiles_code = data.get('smiles_code', term.smiles_code)
+    
+    if 'status' in data:
+        term.status = data['status']
+        
     db.commit()
-    return {"message": "تم التعديل"}
+    db.refresh(term) # تحديث الكائن
+    return {"status": "success"}
 
 @app.delete("/terms/{term_id}")
 def delete_term(term_id: int, db: Session = Depends(database.get_db)):
@@ -514,6 +531,15 @@ def add_term_from_bot(data: dict, db: Session = Depends(get_db)):
     db.add(new_term)
     db.commit()
     return {"status": "success"}
+@app.get("/terms/count/")
+def get_terms_count(db: Session = Depends(get_db)):
+    count = db.query(models.Term).count()
+    return {"total": count}
+@app.get("/terms/")
+def get_all_terms(db: Session = Depends(get_db)):
+    # جلب البيانات التي حالتها ليست مرفوضة
+    terms = db.query(models.Term).filter(models.Term.status != 'rejected').order_by(models.Term.id.desc()).all()
+    return terms
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
