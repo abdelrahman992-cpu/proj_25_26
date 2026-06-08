@@ -499,6 +499,21 @@ def get_user_terms(user_id: int, db: Session = Depends(get_db)):
         {"term": t.term,  "status": t.status} 
         for t in terms
     ]
+@app.post("/terms/add-from-bot/")
+def add_term_from_bot(data: dict, db: Session = Depends(get_db)):
+    # منطق حفظ المصطلح في قاعدة البيانات باستخدام SQLAlchemy
+    new_term = models.Term(
+        term=data.get('term'),
+        trans=data.get('trans'),
+        defe=data.get('defe'),
+        smiles_code=data.get('smiles_code'),
+        user_id=data.get('user_id'),
+        status='pending',
+        picture='pic/ncbi_logo.png'
+    )
+    db.add(new_term)
+    db.commit()
+    return {"status": "success"}
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

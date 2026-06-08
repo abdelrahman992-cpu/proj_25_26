@@ -9,21 +9,45 @@ include_once("conn.php");
 $db = $connect ?? $conn;
 $message = "";
 
-// 1. معالجة طلب الإضافة (فقط إذا ضغط المستخدم على زر الحفظ)
+// --- التحقق الأمني ---
+// نتحقق من وجود الـ API Key أولاً ليتمكن البوت من الدخول
+$is_bot = (isset($_POST['api_key']) && $_POST['api_key'] === 'my_secret_key_123');
+$is_logged_in = !empty($_SESSION['user_id']);
 
-if (isset($_POST['Submit1'])) {
-    // 1. تأكد أن التوكن موجود في الجلسة
-    if (!isset($_SESSION['access_token'])) {
-        die("خطأ: أنت غير مسجل دخولك، التوكن غير موجود.");
+// إذا لم يكن بوت ولم يكن مسجل دخول، نطرده
+if (!$is_bot && !$is_logged_in) {
+    header("Location: ask_to_sign_in.php");
+    exit;
+}
+
+// --- 1. معالجة طلب البوت (عبر API فقط) ---
+if ($is_bot) {
+    $postData = [
+        'term'        => $_POST['txt_term'] ?? 'N/A',
+        'trans'       => $_POST['trans'] ?? 'N/A',
+        'defe'        => $_POST['TextArea1'] ?? 'N/A',
+        'smiles_code' => $_POST['smiles_code'] ?? 'N/A',
+        'user_id'     => 46,
+        'status'      => 'pending'
+    ];
+
+    $result = callAPI("POST", "/terms/add-from-bot/", $postData); 
+    
+    if (isset($result['status']) && $result['status'] == 'success') {
+        echo "✅ Success: تم الإرسال للمراجعة عبر الـ API.";
+    } else {
+        echo "❌ Error: " . ($result['detail'] ?? "فشل الاتصال بالـ API");
     }
+    exit; // إنهاء السكربت للبوت
+}
 
-    $token = $_SESSION['access_token'];
-
+// --- 2. معالجة الإضافة اليدوية (للمستخدمين المسجلين) ---
+if (isset($_POST['Submit1'])) {
+    $token = $_SESSION['access_token'] ?? "";
     $data = [
         'term'  => $_POST['txt_term'] ?? "",
         'trans' => $_POST['trans'] ?? "",
         'defe'  => $_POST['TextArea1'] ?? ""
-        // ملاحظة: لا ترسل status أو user_id من الـ PHP، دع الـ API (الذي يملك التوكن) يحدد ذلك أمنياً
     ];
 
     $ch = curl_init('http://127.0.0.1:8000/terms/');
@@ -32,73 +56,18 @@ if (isset($_POST['Submit1'])) {
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Content-Type: application/json',
-        'Authorization: Bearer ' . $token // تأكد أن التوكن صحيح
+        'Authorization: Bearer ' . $token
     ]);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
+    
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    
-    if (curl_errno($ch)) {
-        $_SESSION['api_message'] = 'خطأ اتصال: ' . curl_error($ch);
-    } else {
-        // الـ FastAPI يرجع 200 أو 201 عند النجاح
-        if ($httpCode == 200 || $httpCode == 201) {
-            $_SESSION['api_message'] = "✅ تمت الإضافة بنجاح!";
-        } else {
-            $_SESSION['api_message'] = "❌ فشل الكود ($httpCode): " . $response;
-        }
-    }
     curl_close($ch);
     
+    $_SESSION['api_message'] = ($httpCode == 200 || $httpCode == 201) ? "✅ تمت الإضافة بنجاح!" : "❌ فشل الكود ($httpCode): " . $response;
     header("Location: " . $_SERVER['PHP_SELF']);
     exit;
 }
 
-
-// 2. معالجة طلبات البوت أو الأزرار الأخرى
-$functions_ready = function_exists('fetch_from_ncbi') && function_exists('translate_to_arabic');
-$json_input = json_decode(file_get_contents("php://input"), true);
-$data = array_merge($_POST, (array)$json_input);
-
-$is_python = (isset($data['api_key']) && $data['api_key'] === 'my_secret_key_123');
-$is_logged_in = !empty($_SESSION['username']);
-
-if (!$is_python && !$is_logged_in) {
-    header("Location: ask_to_sign_in.php");
-    exit;
-}
-
-// (بقية أكواد البوت واستيراد الجينات تبقى كما هي هنا...)
-
-
-// 1. تحديد نوع الزائر
-// البوت يرسل دائماً api_key، أما المتصفح فيرسل اسم الزر (import_genes)
-
-
-// 2. معالجة طلب البوت (Python)
-if ($is_python) {
-    header('Content-Type: application/json');
-    $term   = $data['term'] ?? 'N/A';
-    $trans  = $data['trans'] ?? 'N/A';
-    $defe   = $data['defe'] ?? 'N/A';
-    $smiles = $data['smiles_code'] ?? 'N/A';
-    $bot_id = 46;
-
-    $sql = "INSERT INTO terms (term, trans, defe, smiles_code, status, user_id, picture) VALUES (?, ?, ?, ?, 'approved', ?, 'pic/ncbi_logo.png')";
-    $stmt = mysqli_prepare($db, $sql);
-    mysqli_stmt_bind_param($stmt, "ssssi", $term, $trans, $defe, $smiles, $bot_id);
-    
-    if (mysqli_stmt_execute($stmt)) {
-        echo json_encode(["status" => "success"]);
-    } else {
-        echo json_encode(["status" => "error", "message" => mysqli_error($db)]);
-    }
-    exit; // إنهاء السكربت للبوت فوراً
-}
-
-
-// --- زر استيراد الهيموفيليا ---
 if (isset($_POST['import_hemophilia']) && $functions_ready) {
     $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=Hemophilia%20Gene%20Therapy&retmax=3&retmode=json";
     $search_res = fetch_from_ncbi($api_search);
