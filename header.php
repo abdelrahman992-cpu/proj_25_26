@@ -149,8 +149,7 @@ function changeLanguage(lang){
 </div>
 
 <div style="width: 100%; text-align:right;">
-<nav class="navbar">
-<ul class="nav-links">
+
 
 <?php if(empty($_SESSION['username'])): ?>
 <nav class="navbar">

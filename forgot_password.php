@@ -1,71 +1,71 @@
 <?php
 include("conn.php");
 
+
 $error = "";
 $success = "";
+// ملاحظة: لا نحتاج لتهيئة $result خارج الـ if لأننا سنتحقق من وجوده قبل استخدامه
 
-
+// معالجة طلب الكود
 if(isset($_POST['submit'])) {
     $input = trim($_POST['email']); 
     
-    // استخراج بيانات المستخدم أولاً
     $stmt = mysqli_prepare($connect, "SELECT id, username, email FROM users WHERE email=? OR username=?");
     mysqli_stmt_bind_param($stmt, "ss", $input, $input);
     mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
+    $result_db = mysqli_stmt_get_result($stmt);
 
-    if(mysqli_num_rows($result) == 1) {
-        $row = mysqli_fetch_assoc($result);
+    if(mysqli_num_rows($result_db) == 1) {
+        $row = mysqli_fetch_assoc($result_db);
         $user_email = $row['email'];
         $user_name = $row['username'];
 
-        // الاتصال بالـ API
         $result_api = callAPI("POST", "/password/request-reset/?email=" . urlencode($user_email));
         
-        // التحقق من الرد
         if(isset($result_api['message'])) {
             $_SESSION['reset_email'] = $user_email;
-            
-            // تشفير البيانات للعرض
             $parts = explode("@", $user_email);
             $domainParts = explode(".", $parts[1]);
             $domain = end($domainParts); 
             $maskedEmail = substr($parts[0], 0, 2) . "****" . substr($parts[0], -1) . "@*****." . $domain;
-            
             $success = "📧 تم إرسال كود التحقق إلى: المستخدم ($user_name) | الإيميل ($maskedEmail)";
         } else {
-            // هنا ستظهر تفاصيل الخطأ إذا كان الـ API يعيد رسالة خطأ
-            $error = "❌ فشل الإرسال: " . ($result_api['detail'] ?? "خطأ غير معروف");
+            $error = "❌ فشل الإرسال: " . ($result_api['detail'] ?? "خطأ في الاتصال بالخادم");
         }
     } else {
         $error = "❌ المستخدم غير موجود.";
     }
 }
-if(isset($_POST['submito'])) {
-    $email = trim($_SESSION['reset_email']);
-    $otp_input = trim($_POST['ottp']);
-    
-    // إرسال البيانات للتحقق فقط
-    $postData = [
-        'email' => $email,
-        'code' => $otp_input
-    ];
 
-    // استدعاء دالة التحقق الجديدة في main.py
-    $result = callAPI("POST", "/password/modifypa-otp/", $postData); 
-    
-    // التحقق من أن الرد يحتوي على status: success
-    if(isset($result['status']) && $result['status'] == 'success') {
-        // التحقق ناجح: نحفظ الإيميل في الجلسة وننتقل لصفحة تعيين كلمة المرور
-        $_SESSION['reset_user'] = $email; 
-        unset($_SESSION['reset_email']); // تنظيف الجلسة
-        header("Location: reset_password.php"); 
-        exit;
+// معالجة التحقق من الكود
+if(isset($_POST['submito'])) {
+    // التأكد من وجود الإيميل في الجلسة
+    if(!isset($_SESSION['reset_email'])) {
+        $error = "❌ انتهت الجلسة، يرجى طلب الكود مرة أخرى.";
     } else {
-        // عرض رسالة الخطأ القادمة من الـ API
-        $error = $result['detail'] ?? "❌ الكود غير صحيح أو منتهي الصلاحية.";
+        $email = $_SESSION['reset_email'];
+        $otp_input = trim($_POST['ottp']);
+        
+        $postData = [
+            'email' => $email,
+            'code' => $otp_input
+        ];
+
+        $result = callAPI("POST", "/password/verify-code/", $postData); 
+        
+        // التحقق الصحيح من الرد
+        if(isset($result['status']) && $result['status'] == 'success') {
+            $_SESSION['reset_user'] = $email; 
+            unset($_SESSION['reset_email']);
+            header("Location: reset_password.php"); 
+            exit;
+        } else {
+            // هنا الخطأ سيظهر فقط إذا كان الزر مضغوطاً والنتيجة ليست success
+            $error = "❌ " . ($result['detail'] ?? "الكود غير صحيح أو منتهي الصلاحية.");
+        }
     }
 }
+
 
 include("header.php");
 ?>

@@ -8,44 +8,45 @@ $success = "";
 if(!isset($_SESSION['reset_user'])){
     $error = "❌ غير مسموح بالدخول لهذه الصفحة مباشرة";
 }
-
-// معالجة النموذج
-if(isset($_POST['submite']) && isset($_SESSION['reset_user'])){
+if (isset($_POST['submite']) && isset($_SESSION['reset_user'])) {
     $email = $_SESSION['reset_user'];
-    $new_password = $_POST['new_password'];
-    $confirm_password = $_POST['confirm_password'];
+    $new_password = $_POST['new_password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
     
-    // ملاحظة: الـ API في main.py يحتاج الكود أيضاً ليحذفه، 
-    // لذا يفضل تمرير الكود عبر الجلسة (Session) أيضاً من صفحة التحقق
-    $code = $_SESSION['reset_code']; 
 
-    if(!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/', $new_password)){
-        $error = "❌ كلمة المرور يجب أن تكون 6 أحرف على الأقل وتحتوي على حرف كبير وصغير ورقم";
-    } elseif($new_password != $confirm_password){
-        $error = "❌ كلمة المرور وتأكيدها غير متطابقين";
-    } else {
-        // إعداد البيانات للـ API
-        $postData = [
-            'email' => $email,
-            'code' => $code,
-            'new_password' => $new_password
-        ];
+    
+        $code = $_SESSION['reset_code'];
 
-        // الاتصال بالـ API وتغيير كلمة المرور
-        $result = callAPI("POST", "/password/reset/", $postData);
-
-        // التحقق من رد الـ API
-        if(isset($result['message']) && $result['message'] == "تم تغيير كلمة المرور بنجاح") {
-            $success = "✅ تم تغيير كلمة المرور بنجاح.";
-            unset($_SESSION['reset_user']);
-            unset($_SESSION['reset_code']);
-            header("Location: index.php");
-            exit;
+        if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/', $new_password)) {
+            $error = "❌ كلمة المرور يجب أن تكون 6 أحرف على الأقل وتحتوي على حرف كبير وصغير ورقم";
+        } elseif ($new_password != $confirm_password) {
+            $error = "❌ كلمة المرور وتأكيدها غير متطابقين";
         } else {
-            $error = $result['detail'] ?? "❌ حدث خطأ أثناء التغيير.";
+            // الآن نأتي لجزء الـ API وهو داخل الـ else الصحيحة
+        // في reset_password.php
+$postData = [
+    'email' => $_SESSION['reset_user'],
+    'new_password' => $new_password
+    // لا ترسل 'code' هنا إلا إذا كان الـ API يطلبه إجبارياً
+];
+
+$result = callAPI("POST", "/password/reset/", $postData);
+
+
+            // التحقق من رد الـ API
+            if (isset($result['message']) && $result['message'] == "تم تغيير كلمة المرور بنجاح") {
+                $success = "✅ تم تغيير كلمة المرور بنجاح.";
+                unset($_SESSION['reset_user']);
+                unset($_SESSION['reset_code']);
+                header("Location: index.php");
+                exit;
+            } else {
+                $error = $result['detail'] ?? "❌ حدث خطأ أثناء التغيير.";
+            }
         }
-    }
-}
+    } 
+
+
 include("header.php");
 ?>
 

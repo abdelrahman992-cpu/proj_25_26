@@ -406,46 +406,48 @@ def change_otp(data: dict, current_user: models.User = Depends(auth.get_current_
     db.commit()
     
     return {"status": "success", "message": "تم التحديث بنجاح"}
+# 1. دالة طلب الكود (ترسل الإيميل فقط)
 @app.post("/password/request-reset/")
 def request_password_reset(email: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    # كودك الحالي ممتاز هنا
     user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="هذا البريد غير مسجل")
-
+    if not user: raise HTTPException(status_code=404, detail="هذا البريد غير مسجل")
+    
     otp_code = generate_otp_code(6)
     expire_time = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)
-
-    new_otp = models.OTP(
-        user_id=user.id,
-        reset_code=otp_code,
-        reset_expire=expire_time
-    )
+    new_otp = models.OTP(user_id=user.id, reset_code=otp_code, reset_expire=expire_time)
     db.add(new_otp)
     db.commit()
-
     background_tasks.add_task(send_email, email, otp_code)
     return {"message": "تم إرسال كود إعادة تعيين كلمة المرور"}
 
-@app.post("/password/reset/")
-def reset_password(data: dict, db: Session = Depends(get_db)):
-    email = data.get("email") # يبحث عنها داخل الـ JSON Body
-    code = data.get("code")   # يبحث عنها داخل الـ JSON Body
-    new_password = data.get("new_password")
-    
+# 2. دالة التحقق من الكود فقط (تستخدم في صفحة forgot_password.php)
+@app.post("/password/verify-code/")
+def verify_code(data: dict, db: Session = Depends(get_db)):
+    email = data.get("email")
+    code = data.get("code")
     user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="مستخدم غير موجود")
-
+    
     otp_record = db.query(models.OTP).filter(
         models.OTP.user_id == user.id,
-        models.OTP.reset_code == code
+        models.OTP.reset_code == code,
+        models.OTP.reset_expire >= dt.datetime.now(dt.timezone.utc)
     ).first()
 
     if not otp_record:
-        raise HTTPException(status_code=400, detail="الكود غير صحيح")
+        raise HTTPException(status_code=400, detail="الكود غير صحيح أو منتهي الصلاحية")
+    
+    return {"status": "success", "message": "الكود صحيح"}
 
+# 3. دالة تغيير كلمة المرور (تستخدم في صفحة reset_password.php)
+@app.post("/password/reset/")
+def reset_password(data: dict, db: Session = Depends(get_db)):
+    email = data.get("email")
+    new_password = data.get("new_password")
+    
+    user = db.query(models.User).filter(models.User.email == email).first()
+    # تغيير كلمة المرور مباشرة
     user.passwor = get_password_hash(new_password)
-    db.delete(otp_record)
     db.commit()
     
     return {"message": "تم تغيير كلمة المرور بنجاح"}
