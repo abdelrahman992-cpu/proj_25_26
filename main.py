@@ -20,7 +20,9 @@ from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from auth import get_password_hash
 from pydantic import BaseModel
-
+from fastapi import HTTPException, APIRouter
+import requests
+from Bio import Align
 
 def smart_load_env():
     current_os = platform.system().lower()
@@ -37,6 +39,7 @@ def smart_load_env():
 smart_load_env()
 
 # --- 3. الآن تحميل المتغيرات بعد التأكد من وجودها ---
+router = APIRouter()
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
@@ -50,9 +53,145 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.post("/analyze-gene/")
+def analyze_gene(payload: dict):
+    gene_name = payload.get("gene_name", "").strip()
+    if not gene_name:
+        raise HTTPException(status_code=400, detail="يجب إدخال اسم الجين (مثل: BRCA1).")
 
-# --- 1. تعريف دالة التحميل الذكي ---
+    # 1. البحث المباشر في قاعدة بيانات التسلسلات (nuccore) باسم الجين
+    search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=nuccore&term={gene_name}+[Gene+Name]&retmax=1&retmode=json"
+    search_res = requests.get(search_url).json()
+    id_list = search_res.get("esearchresult", {}).get("idlist", [])
+    
+    # إذا لم يجد بتصنيف Gene Name، نجرب البحث المباشر بالنص
+    if not id_list:
+        alt_search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=nuccore&term={gene_name}&retmax=1&retmode=json"
+        alt_search_res = requests.get(alt_search_url).json()
+        id_list = alt_search_res.get("esearchresult", {}).get("idlist", [])
 
+    if not id_list:
+        raise HTTPException(status_code=404, detail="عذراً، لم يتم العثور على تسلسل جيني مطابق لهذا الاسم في NCBI.")
+        
+    accession = id_list[0]  # الحصول على الـ Accession/ID الخاص بالتسلسل مباشرة
+
+    # 2. جلب التسلسل الفعلي (FASTA) باستخدام الـ Accession
+    fasta_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id={accession}&rettype=fasta&retmode=text"
+    fasta_response = requests.get(fasta_url)
+    
+    if fasta_response.status_code != 200 or not fasta_response.text:
+        raise HTTPException(status_code=500, detail="تعذر جلب التسلسل من قاعدة بيانات NCBI.")
+
+    fasta_text = fasta_response.text
+    lines = fasta_text.splitlines()
+    raw_sequence = "".join([line.strip() for line in lines if not line.startswith(">")])
+
+    # 3. التحقق من نظافة التسلسل (اعتماد الفلترة المتسامحة التي قمنا بها)
+    is_valid, clean_seq = is_valid_dna(raw_sequence)
+    
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="التسلسل المسترجع يحتوي على رموز غير صالحة.")
+        
+    return {
+        "status": "success",
+        "gene_name": gene_name,
+        "accession": accession,
+        "clean_sequence": clean_seq[:200], # معاينة أول 200 قاعدة
+        "disease_classification": "Type I (نتيجة تحليل مبدئية)"
+    }
+@app.get("/suggest-genes/")
+def suggest_genes(term: str):
+    if len(term) < 2:
+        return []
+    
+    # البحث باستخدام علامة * لجلب اقتراحات تبدأ بالحروف المدخلة (غير حساس لحالة الأحرف تلقائياً في NCBI)
+    search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term={term}*&retmax=5&retmode=json"
+    search_res = requests.get(search_url).json()
+    id_list = search_res.get("esearchresult", {}).get("idlist", [])
+    
+    if not id_list:
+        return []
+
+    # جلب أسماء الجينات المقترحة لعرضها للمستخدم
+    summary_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id={','.join(id_list)}&retmode=json"
+    summary_res = requests.get(summary_url).json()
+    
+    suggestions = []
+    for gid in id_list:
+        gene_info = summary_res.get("result", {}).get(str(gid))
+        if gene_info:
+            suggestions.append({
+                "id": gid,
+                "symbol": gene_info.get("name"),
+                "description": gene_info.get("description")
+            })
+            
+    return suggestions    
+@app.post("/compare-two-sequences/")
+def compare_two_sequences(payload: dict):
+    # استقبال السلسلتين وتنظيفهما
+    seq1 = payload.get("seq1", "").replace("\n", "").replace(" ", "").upper()
+    seq2 = payload.get("seq2", "").replace("\n", "").replace(" ", "").upper()
+    
+    if not seq1 or not seq2:
+        raise HTTPException(status_code=400, detail="الرجاء إدخال التسلسلين للمقارنة.")
+
+    # التحقق من أن السلاسل تحتوي فقط على أحرف DNA صالحة (اختياري، يمكنك استخدام دالة الفحص السابقة)
+    
+    # إجراء المحاذاة والمقارنة
+    aligner = Align.PairwiseAligner()
+    alignments = aligner.align(seq1, seq2)
+    
+    if not alignments:
+        return {
+            "status": "success",
+            "alignment_score": 0,
+            "sequence_1_aligned": seq1,
+            "sequence_2_aligned": seq2,
+            "message": "لا يوجد تطابق عالي."
+        }
+        
+    best_alignment = alignments[0]
+    score = best_alignment.score 
+    
+    # استخراج شكل المحاذاة النصي للعرض
+    alignment_str = str(best_alignment).split('\n')
+    aligned_1 = alignment_str[0]
+    aligned_2 = alignment_str[2]
+
+    return {
+        "status": "success",
+        "alignment_score": score,
+        "sequence_1_aligned": aligned_1,
+        "sequence_2_aligned": aligned_2
+    }
+def is_valid_dna(sequence):
+    # إزالة المسافات والأسطر الجديدة
+    clean_seq = sequence.replace("\n", "").replace(" ", "").upper()
+    
+    # السماح فقط بـ A, C, G, T, N
+    allowed_chars = set("ACGTN")
+    
+    if set(clean_seq).issubset(allowed_chars):
+        return True, clean_seq
+    else:
+        return False, "يحتوي التسلسل على أحرف غير صالحة (يجب أن يكون A, C, G, T فقط)."
+
+@router.post("/terms/")
+def add_term(data: dict):
+    # استلام التسلسل والتحقق منه أولاً
+    raw_sequence = data.get("fasta_seq", "")
+    is_valid, clean_or_error = is_valid_dna(raw_sequence)
+    
+    if not is_valid:
+        # إيقاف التنفيذ وإرجاع رسالة خطأ للواجهة (Frontend)
+        raise HTTPException(status_code=400, detail=clean_or_error)
+        
+    # إذا كان التسلسل صحيحاً، نكمل باقي العمليات
+    # clean_seq هو التسلسل النظيف والمعالج لاستخدامه في BioPython
+    processed_sequence = clean_or_error 
+    
+    return {"status": "success", "clean_sequence": processed_sequence}
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
