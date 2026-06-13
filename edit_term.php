@@ -98,9 +98,14 @@ if (!is_array($terms)) {
                 <th>الحالة</th>
                 <th>العرض المرئي</th>
                 <th>العمليات السريعة</th>
+                   <th>التسلسل الجيني</th>
+                <th>التسلسل الفاستا</th>
+                   <th>فئة المرض</th>
+                <th>نسبة الثقة</th>
+                <th>التاريخ</th>
             </tr>
         </thead>
-        <tbody>
+ <tbody>
             <?php foreach($terms as $row) { 
                 $smiles = $row['smiles_code'] ?? 'N/A';
                 $status_class = ($row['status'] == 'approved') ? 'badge-approved' : 'badge-pending';
@@ -111,9 +116,9 @@ if (!is_array($terms)) {
             ?>
             <tr>
                 <td><?php echo $row['id']; ?></td>
-                <td><b><?php echo $row['term']; ?></b></td>
-                <td><?php echo $row['trans']; ?></td>
-                <td><span class="badge <?php echo $status_class; ?>"><?php echo $row['status']; ?></span></td>
+                <td><b><?php echo htmlspecialchars($row['term']); ?></b></td>
+                <td><?php echo htmlspecialchars($row['trans']); ?></td>
+                <td><span class="badge <?php echo $status_class; ?>"><?php echo htmlspecialchars($row['status']); ?></span></td>
                 <td><img src="<?php echo $display_img; ?>" class="molecule-img" width="50" height="50"></td>
                 <td>
                     <?php if ($_SESSION['role'] == 'admin'): ?>
@@ -126,62 +131,81 @@ if (!is_array($terms)) {
                         <?php endif; ?>
                     <?php endif; ?>
                 </td>
+                <td><?php echo htmlspecialchars($row['accession_id'] ?? 'N/A'); ?></td>
+                <td>
+                    <?php 
+                    // إظهار حجم التسلسل بدلاً من النص الخام لكي لا يفسد شكل الجدول
+                    echo (!empty($row['fasta_seq']) && $row['fasta_seq'] != 'N/A') 
+                        ? "موجود (" . strlen($row['fasta_seq']) . " bp)" 
+                        : 'N/A'; 
+                    ?>
+                </td>
+                <td><?php echo htmlspecialchars($row['disease_class'] ?? 'N/A'); ?></td>
+                <td><?php echo htmlspecialchars($row['confidence_score'] ?? 'N/A'); ?></td>
+                <td><?php echo htmlspecialchars($row['created_at'] ?? 'N/A'); ?></td>
             </tr>
             <?php } ?>
         </tbody>
     </table> </div>
 <?php
         // عرض نموذج التعديل فقط عند اختيار ID
-        if(isset($_GET['id'])) {
+    if(isset($_GET['id'])) {
             $id_to_edit = intval($_GET['id']);
             
-            // استدعاء البيانات من الـ API بدلاً من SQL
             $data = callAPI("GET", "/terms/" . $id_to_edit);
 
             if($data && !isset($data['error'])) {
-                // ملاحظة: تأكد من تعريف $display_img للتعديل أيضاً
                 $smiles = $data['smiles_code'] ?? 'N/A';
+                
+                // تم تصحيح $data['filedata'] إلى $data['picture']
                 $edit_display_img = (!empty($smiles) && $smiles != 'N/A') 
                     ? "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/" . urlencode($smiles) . "/PNG" 
-                    : $data['picture'];
+                    : ($data['picture'] ?? 'pic/dna_drug_logo.png');
         ?>
         <div id="edit-form" class="card bg-light text-dark p-4 mt-5 mb-5 shadow mx-auto" style="max-width: 800px;">
             <h2 class="text-primary border-bottom pb-2">📝 تعديل بيانات المصطلح</h2>
             <form method="post" enctype="multipart/form-data" class="text-right mt-3">
-                <input name="iddata" type="hidden" value="<?php echo $data['id']; ?>" />
-                <input name="pic" type="hidden" value="<?php echo $data['picture']; ?>" />
+                <input name="iddata" type="hidden" value="<?php echo htmlspecialchars($data['id'] ?? ''); ?>" />
+                <input name="pic" type="hidden" value="<?php echo htmlspecialchars($data['picture'] ?? ''); ?>" />
                 
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>المصطلح الإنجليزي:</label>
-                        <input name="txt_term" type="text" class="form-control" value="<?php echo htmlspecialchars($data['term']); ?>" required />
+                        <input name="txt_term" type="text" class="form-control" value="<?php echo htmlspecialchars($data['term'] ?? ''); ?>" required />
                     </div>
                     <div class="form-group col-md-6">
                         <label>الترجمة العربية:</label>
-                        <input name="trans" type="text" class="form-control" value="<?php echo htmlspecialchars($data['trans']); ?>" required />
+                        <input name="trans" type="text" class="form-control" value="<?php echo htmlspecialchars($data['trans'] ?? ''); ?>" required />
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>SMILES Code (للمركبات الكيميائية):</label>
-                    <input name="smiles_code" type="text" class="form-control" value="<?php echo htmlspecialchars($data['smiles_code']); ?>" />
+                    <input name="smiles_code" type="text" class="form-control" value="<?php echo htmlspecialchars($data['smiles_code'] ?? ''); ?>" />
                 </div>
                 
                 <div class="form-group">
                     <label>التعريف / الوصف العلمي:</label>
-                    <textarea name="TextArea1" class="form-control" rows="5" required><?php echo htmlspecialchars($data['defe']); ?></textarea>
+                    <textarea name="TextArea1" class="form-control" rows="5" required><?php echo htmlspecialchars($data['defe'] ?? ''); ?></textarea>
                 </div>
                 
                 <div class="form-row align-items-center bg-white p-3 rounded border">
                     <div class="form-group col-md-4 text-center">
                         <label>المعاينة الحالية:</label><br>
-                        <img src="<?php echo $edit_display_img; ?>" width="120" class="img-thumbnail">
+                        <img src="<?php echo htmlspecialchars($edit_display_img ?? ''); ?>" width="120" class="img-thumbnail">
                     </div>
                     <div class="form-group col-md-8">
                         <label>تحديث الصورة يدوياً (اختياري):</label>
                         <input name="filedata" type="file" class="form-control-file border p-1 rounded">
                     </div>
                 </div>
+                
+                <div class="mt-4">
+                    <button name="Submit2" class="btn btn-success btn-lg btn-block" type="submit">💾 حفظ التعديلات النهائية</button>
+                    <a href="edit_term.php" class="btn btn-secondary btn-block">إلغاء وإغلاق النموذج</a>
+                </div>
+            </form>
+        </div>
                 
                 <div class="mt-4">
                     <button name="Submit2" class="btn btn-success btn-lg btn-block" type="submit">💾 حفظ التعديلات النهائية</button>

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum, ForeignKey, Text, DateTime, TIMESTAMP, Table
+from sqlalchemy import Column, Integer, String, Enum, ForeignKey, Text, DateTime, TIMESTAMP, Table,DECIMAL
 from sqlalchemy.orm import relationship
 from database import Base
 import enum
@@ -46,6 +46,10 @@ class Term(Base):
     picture = Column(String(255), default='yyy.jpg')
     user_id = Column(Integer)
     status = Column(String(20), default='pending')
+    sequence = Column(Text, nullable=True)
+    fasta_seq = Column(Text, nullable=True)
+    disease_class = Column(String(255), nullable=True)
+    confidence_score = Column(DECIMAL(5, 2), nullable=True)
 class OTP(Base):
     __tablename__ = "otp_codes"
     id = Column(Integer, primary_key=True)

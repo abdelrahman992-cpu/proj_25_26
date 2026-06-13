@@ -23,6 +23,26 @@ from pydantic import BaseModel
 from fastapi import HTTPException, APIRouter
 import requests
 from Bio import Align
+import difflib
+import os
+import pymysql
+import xml.etree.ElementTree as ET
+from chembl_webresource_client.new_client import new_client
+from models import Term  # أو من المكان الذي تعرف فيه جدول Terms في مشروعك (قد يكون from database import Term أو غيره)
+
+
+def get_db_connection():
+    # جلب كلمة المرور من متغيرات البيئة، وإذا كانت فارغة أو غير موجودة تكون "" (بدون باسوورد)
+    db_password = os.getenv("DB_PASS", "") 
+    
+    return pymysql.connect(
+        host='localhost',
+        user=os.getenv("DB_USER", "root"),
+        password=db_password,
+        database=os.getenv("DB_NAME", "dbdictionary"),
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
 
 def smart_load_env():
     current_os = platform.system().lower()
@@ -53,6 +73,55 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+class AccessionRequest(BaseModel):
+    accession_id: str
+@app.post("/api/import-ncbi/")
+def import_ncbi_via_api(req: AccessionRequest, db: Session = Depends(get_db)):
+    accession = req.accession_id.strip()
+    if not accession:
+        raise HTTPException(status_code=400, detail="يجب إدخال رقم Accession ID.")
+
+    # 1. جلب التسلسل من NCBI
+    ncbi_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id={accession}&rettype=fasta&retmode=text"
+    
+    try:
+        response = requests.get(ncbi_url)
+        if response.status_code != 200 or not response.text:
+            raise HTTPException(status_code=404, detail="تعذر جلب التسلسل من NCBI.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ في الاتصال بـ NCBI: {str(e)}")
+
+    # 2. تنظيف التسلسل
+    lines = response.text.splitlines()
+    raw_seq = "".join([line.strip() for line in lines if not line.startswith(">")])
+    clean_sequence = raw_seq.strip().upper()
+
+    if not clean_sequence:
+        raise HTTPException(status_code=400, detail="التسلسل المسترجع فارغ أو غير صالح.")
+
+    # 3. حفظ البيانات في قاعدة البيانات باستخدام SQLAlchemy (نموذج Term الذي قمنا بتعديله)
+    try:
+        db_term = Term(
+            term=f"Accession: {accession}",
+            fasta_seq=clean_sequence,
+            disease_class="N/A - Genetic Sequence",
+            picture="pic/ncbi_logo.png",
+            status="approved",
+            user_id=46
+        )
+        db.add(db_term)
+        db.commit()
+        db.refresh(db_term)
+    except Exception as db_error:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"خطأ في حفظ البيانات بقاعدة البيانات: {str(db_error)}")
+
+    return {
+        "status": "success",
+        "message": "تم جلب التسلسل وحفظه بنجاح عبر الـ API.",
+        "accession_id": accession,
+        "sequence_length": len(clean_sequence)
+    }
 @app.post("/analyze-gene/")
 def analyze_gene(payload: dict):
     gene_name = payload.get("gene_name", "").strip()
@@ -96,8 +165,68 @@ def analyze_gene(payload: dict):
         "status": "success",
         "gene_name": gene_name,
         "accession": accession,
-        "clean_sequence": clean_seq[:200], # معاينة أول 200 قاعدة
+        "clean_sequence": clean_seq, # معاينة أول 200 قاعدة
         "disease_classification": "Type I (نتيجة تحليل مبدئية)"
+    }
+class HemophiliaRequest(BaseModel):
+    query: str = "Hemophilia Gene Therapy"
+
+# دالة مساعدة للترجمة (يمكنك ربطها بأي API ترجمة مثل Google Translate أو DeepL)
+def translate_to_arabic(text: str) -> str:
+    # ضع هنا كود الترجمة الخاص بك في بايثون
+    return text + " (مترجم)"
+
+@app.post("/api/import-hemophilia/")
+def import_hemophilia_api(db: Session = Depends(get_db)):
+    # 1. البحث عن أبحاث الهيموفيليا في PubMed
+    search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=Hemophilia+Gene+Therapy&retmax=3&retmode=json"
+    
+    try:
+        search_res = requests.get(search_url).json()
+        id_list = search_res.get("esearchresult", {}).get("idlist", [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ في الاتصال بـ NCBI esearch: {str(e)}")
+    
+    count = 0
+    for pmid in id_list:
+        fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
+        
+        try:
+            xml_response = requests.get(fetch_url)
+            if xml_response.status_code != 200:
+                continue
+            
+            # تحليل الـ XML
+            root = ET.fromstring(xml_response.text)
+            title_node = root.find(".//ArticleTitle")
+            t_en = title_node.text if title_node is not None else ""
+        except Exception:
+            continue
+            
+        t_ar = translate_to_arabic(t_en)
+        term_name = f"PMID: {pmid}"
+        abstract = f"Research ID: {pmid}"
+        
+        # التحقق إذا كان السجل موجوداً مسبقاً (ما يعادل INSERT IGNORE)
+        existing_term = db.query(Term).filter(Term.term == term_name).first()
+        
+        if not existing_term:
+            new_term = Term(
+                term=term_name,
+                trans=t_ar,
+                defe=abstract,
+                picture="pic/ncbi_logo.png",
+                status="approved",
+                user_id=46
+            )
+            db.add(new_term)
+            db.commit()
+            count += 1
+
+    return {
+        "status": "success",
+        "imported_count": count,
+        "message": f"🩸 تم استيراد {count} أبحاث بنجاح!"
     }
 @app.get("/suggest-genes/")
 def suggest_genes(term: str):
@@ -682,6 +811,269 @@ def get_all_terms(db: Session = Depends(get_db)):
     # جلب البيانات التي حالتها ليست مرفوضة
     terms = db.query(models.Term).filter(models.Term.status != 'rejected').order_by(models.Term.id.desc()).all()
     return terms
+    # من ملف DNAToolKit.py المرفق في مستندك
+Nucleotides = ['A', 'G', 'T', 'C'] #
+
+# دالة التحقق من صحة التسلسل (من ملفك المرفق)
+def validateSeq(dna_seq):
+    tmpseq = dna_seq.upper() 
+    for nuc in tmpseq:
+        if nuc not in Nucleotides: 
+            return False
+    return tmpseq 
+
+# دالة حساب تكرار القواعد (من ملفك المرفق)
+def countNucFrequency(seq):
+    tmpFreqDict = {"A": 0, "C": 0, "G": 0, "T": 0} 
+    for nuc in seq:
+        if nuc in tmpFreqDict:
+            tmpFreqDict[nuc] += 1 
+    return tmpFreqDict 
+
+class SequenceCompareRequest(BaseModel):
+    seq1: str
+    seq2: str
+@app.post("/analyze-sequence/")
+def analyze_sequence(payload: dict):
+    # استقبال السلسلة المدخلة من المستخدم وتفريغها من المسافات
+    user_seq = payload.get("sequence", "").strip().upper()
+    
+    if not user_seq:
+        raise HTTPException(status_code=400, detail="لم يتم إدخال أي تسلسل.")
+        
+    # فحص السلسلة
+    valid_seq = validateSeq(user_seq)
+    
+    if not valid_seq:
+        raise HTTPException(status_code=400, detail="التسلسل غير صالح. يجب أن يحتوي فقط على A, C, T, G.")
+        
+    # حساب التكرارات
+    frequencies = countNucFrequency(valid_seq)
+    
+    return {
+        "status": "success",
+        "validated_sequence": valid_seq,
+        "nuc_frequencies": frequencies,
+        "message": "تم فحص التسلسل المتغير بنجاح."
+    }
+
+# (اختياري) مسار لتوليد سلسلة عشوائية كما في مستندك
+@app.post("/generate-random-seq/")
+def generate_random_seq(payload: dict):
+    length = payload.get("length", 3000)
+    # توليد حروف بصورة عشوائية (الكود من مستندك)
+    rndDNAStr = ''.join([random.choice(Nucleotides) for nuc in range(length)]) #
+    
+    return analyze_sequence({"sequence": rndDNAStr})
+@app.get("/generate-random-dna/")
+def generate_random_dna():
+    import random
+    Nucleotides = ['A', 'G', 'T', 'C']
+    # توليد سلسلة عشوائية بطول 20
+    rnd_seq = ''.join([random.choice(Nucleotides) for _ in range(20)])
+    return {"status": "success", "sequence": rnd_seq}
+@app.post("/find-closest/")
+def find_closest(payload: dict):
+    # السلسلة الأساسية أو المجهولة
+    input_seq = payload.get("input_seq", "").strip().upper()
+    # السلسلة الأولى للمقارنة
+    seq1 = payload.get("seq1", "").strip().upper()
+    # السلسلة الثانية للمقارنة
+    seq2 = payload.get("seq2", "").strip().upper()
+    
+    # يمكن إضافة دالة التحقق validateSeq هنا للتأكد من سلامة الحروف
+    
+    aligner = Align.PairwiseAligner()
+    
+    # حساب نسبة التطابق مع السلسلة الأولى
+    score1 = 0
+    alignments1 = aligner.align(input_seq, seq1)
+    if alignments1:
+        score1 = alignments1[0].score
+        
+    # حساب نسبة التطابق مع السلسلة الثانية
+    score2 = 0
+    alignments2 = aligner.align(input_seq, seq2)
+    if alignments2:
+        score2 = alignments2[0].score
+        
+    # تحديد الأقرب بناءً على الدرجة الأعلى
+    if score1 == 0 and score2 == 0:
+        winner = "لا يوجد تطابق مع أي من السلسلتين."
+    elif score1 >= score2:
+        winner = "السلسلة الأولى (Seq 1) هي الأقرب."
+    else:
+        winner = "السلسلة الثانية (Seq 2) هي الأقرب."
+
+    return {
+        "status": "success",
+        "score_seq1": score1,
+        "score_seq2": score2,
+        "closest": winner
+    }
+@app.post("/compare-with-ncbi/")
+def compare_with_ncbi(payload: dict):
+    # استلام التسلسلات
+    ncbi_seq = payload.get("ncbi_seq", "").strip().upper()
+    seq1 = payload.get("seq1", "").strip().upper()
+    seq2 = payload.get("seq2", "").strip().upper()
+    
+    aligner = Align.PairwiseAligner()
+    
+    # مقارنة تسلسل NCBI بالسلسلة الأولى
+    score1 = 0
+    alignments1 = aligner.align(ncbi_seq, seq1)
+    if alignments1:
+        score1 = alignments1[0].score
+        
+    # مقارنة تسلسل NCBI بالسلسلة الثانية
+    score2 = 0
+    alignments2 = aligner.align(ncbi_seq, seq2)
+    if alignments2:
+        score2 = alignments2[0].score
+        
+    # تحديد الأقرب
+    if score1 == 0 and score2 == 0:
+        winner = "لا يوجد تطابق مع تسلسل NCBI."
+    elif score1 >= score2:
+        winner = "السلسلة الأولى (Seq 1) هي الأقرب لتسلسل NCBI."
+    else:
+        winner = "السلسلة الثانية (Seq 2) هي الأقرب لتسلسل NCBI."
+
+    return {
+        "status": "success",
+        "score_seq1": score1,
+        "score_seq2": score2,
+        "closest": winner
+    }
+
+class TermSaveRequest(BaseModel):
+    fasta_seq: str
+    disease_class: str
+    confidence_score: float
+import difflib
+from fastapi import HTTPException
+
+@app.post("/analyze-sequences/")
+def analyze_sequences(req: SequenceCompareRequest):
+    s1 = req.seq1.strip().upper()
+    s2 = req.seq2.strip().upper()
+    
+    # دالة مساعدة لحساب نسبة التشابه بين سلسلتين مئوياً
+    def calculate_confidence(seq1, seq2):
+        if not seq1 or not seq2:
+            return 0.0
+        matcher = difflib.SequenceMatcher(None, seq1, seq2)
+        return round(matcher.ratio() * 100, 2)
+
+    # جلب التسلسلات والأمراض المسجلة في قاعدة البيانات للمقارنة معها
+    try:
+        connection = get_db_connection() # نستخدم دالة الاتصال
+        with connection.cursor() as cursor:
+            query = "SELECT fasta_seq, disease_class FROM terms WHERE fasta_seq IS NOT NULL AND fasta_seq != ''"
+            cursor.execute(query)
+            db_terms = cursor.fetchall()
+        connection.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    # إيجاد أقرب تطابق لـ s1
+    best_match_s1 = {"disease": "لا يوجد تطابق قريب", "score": 0.0}
+    if db_terms:
+        for term in db_terms:
+            score = calculate_confidence(s1, term['fasta_seq'].upper())
+            if score > best_match_s1["score"]:
+                best_match_s1["score"] = score
+                best_match_s1["disease"] = term['disease_class']
+
+    # إيجاد أقرب تطابق لـ s2 (نستخدم الدالة المساعدة بشكل صحيح)
+    best_match_s2 = {"disease": "لا يوجد تطابق قريب", "score": 0.0}
+    if db_terms:
+        for term in db_terms:
+            score = calculate_confidence(s2, term['fasta_seq'].upper())
+            if score > best_match_s2["score"]:
+                best_match_s2["score"] = score
+                best_match_s2["disease"] = term['disease_class']
+
+    return {
+        "status": "success",
+        "seq1_analysis": {
+            "sequence": s1,
+            "associated_disease": best_match_s1["disease"],
+            "confidence_score": best_match_s1["score"]
+        },
+        "seq2_analysis": {
+            "sequence": s2,
+            "associated_disease": best_match_s2["disease"],
+            "confidence_score": best_match_s2["score"]
+        }
+    }
+class DnaFullImportRequest(BaseModel):
+    accession_id: str
+    term_name: Optional[str] = None
+    trans: Optional[str] = None
+    defe: Optional[str] = None
+    disease_class: Optional[str] = "N/A - Genetic Sequence"
+
+class DnaFullImportRequest(BaseModel):
+    accession_id: str
+    term_name: Optional[str] = None
+    trans: Optional[str] = None
+    defe: Optional[str] = None
+    disease_class: Optional[str] = "N/A - Genetic Sequence"
+    smiles_code: Optional[str] = "N/A"
+
+# 2. الدالة (Endpoint)
+class DrugRequest(BaseModel):
+    drug_name: str
+
+@app.post("/api/import-dna-complete/")
+def add_drug_via_api(req: DrugRequest, db: Session = Depends(get_db)):
+    drug_name = req.drug_name.strip()
+    if not drug_name:
+        raise HTTPException(status_code=400, detail="يجب إدخال اسم الدواء.")
+
+    molecule = new_client.molecule
+    res = molecule.search(drug_name)
+
+    if not res:
+        raise HTTPException(status_code=404, detail=f"لم يتم العثور على الدواء: {drug_name} في ChEMBL.")
+
+    data = res[0]
+    name_en = data.get('pref_name', drug_name)
+    
+    structures = data.get('molecule_structures')
+    smiles = structures.get('canonical_smiles', 'N/A') if structures else 'N/A'
+    
+    properties = data.get('molecule_properties')
+    mw = properties.get('full_mwt', 'Unknown') if properties else 'Unknown'
+    
+    description = f"Molecular Weight: {mw} g/mol. Source: ChEMBL Database."
+
+    try:
+        db_term = Term(
+            term=name_en,
+            trans=name_en,
+            defe=description,
+            smiles_code=smiles,
+            fasta_seq="N/A", # الحقل الخاص بالـ DNA نجعله N/A هنا
+            picture="pic/chembl_logo.png",
+            status="approved",
+            user_id=46
+        )
+        db.add(db_term)
+        db.commit()
+        db.refresh(db_term)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"خطأ في حفظ الدواء بقاعدة البيانات: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": f"تم جلب بيانات {name_en} وحفظها بنجاح.",
+        "drug_name": name_en,
+        "smiles": smiles
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

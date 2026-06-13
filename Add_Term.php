@@ -28,10 +28,14 @@ if ($is_bot) {
         'defe'        => $_POST['TextArea1'] ?? 'N/A',
         'smiles_code' => $_POST['smiles_code'] ?? 'N/A',
         'user_id'     => 46,
-        'status'      => 'pending'
+        'status'      => 'pending',
+        'accession_id'  => $_POST['accession_id'] ?? '',          // 👈 (مهمة جداً) دي اللي هيجيب بيها التسلسل من NCBI
+        'disease_class' => $_POST['disease_class'] ?? 'N/A',
+        'smiles_code'      => $_POST['smiles_code'] ?? 'N/A',      // 👈 تقدر تبعتها عادي جداً
+        'confidence_score' => $_POST['confidence_score'] ?? 'N/A'
     ];
 
-    $result = callAPI("POST", "/terms/add-from-bot/", $postData); 
+    $result = callAPI("POST", "/api/import-dna-complete/", $postData); 
     
     if (isset($result['status']) && $result['status'] == 'success') {
         echo "✅ Success: تم الإرسال للمراجعة عبر الـ API.";
@@ -188,80 +192,6 @@ include("header.php");
 include("validation.php");
 
 
-if (isset($_POST['import_hemophilia'])) {
-    $query = "Hemophilia Gene Therapy";
-    $random_start = rand(0, 100); 
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=".urlencode($query)."&retmax=3&retstart=$random_start&retmode=json";
-    
-    $search_data = json_decode(fetch_from_ncbi($api_search), true);
-    $id_list = $search_data['esearchresult']['idlist'] ?? [];
-    
-    $count = 0;
-    foreach ($id_list as $id) {
-        $fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=$id&retmode=xml";
-        $xml_string = fetch_from_ncbi($fetch_url);
-        $xml = simplexml_load_string($xml_string);
-        
-        if ($xml) {
-            $title_en = (string)$xml->PubmedArticle->MedlineCitation->Article->ArticleTitle;
-            $abstract_en = "";
-            if (isset($xml->PubmedArticle->MedlineCitation->Article->Abstract->AbstractText)) {
-                foreach ($xml->PubmedArticle->MedlineCitation->Article->Abstract->AbstractText as $part) {
-                    $abstract_en .= (string)$part . " ";
-                }
-            }
-
-            // الترجمة
-            $title_ar = translate_to_arabic($title_en);
-            $abstract_ar = translate_to_arabic(substr($abstract_en, 0, 1000)); // نترجم أول 1000 حرف لتجنب البطء
-
-            $term_name = "PMID: $id"; // تعريف المتغير قبل الاستخدام
-            $check = mysqli_query($db, "SELECT id FROM terms WHERE term = '$term_name'");
-            
-            if (mysqli_num_rows($check) == 0) {
-                $sql = "INSERT INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)";
-                $stmt = mysqli_prepare($db, $sql);
-                mysqli_stmt_bind_param($stmt, "sss", $term_name, $title_ar, $abstract_ar);
-                if (mysqli_stmt_execute($stmt)) $count++;
-            }
-        }
-    }
-    $message = "<div class='alert alert-danger'>🩸 تم استيراد $count أبحاث هيموفيليا وترجمتها!</div>";
-}
-
-// --- ثانياً: استيراد الجينات العشوائية ---
-if (isset($_POST['import_genes'])) {
-    $topics = ['Human Gene', 'Cancer Biology', 'Genetics'];
-    $query = $topics[array_rand($topics)]; 
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=".urlencode($query)."&retmax=3&retmode=json";
-    
-    $search_data = json_decode(fetch_from_ncbi($api_search), true);
-    $id_list = $search_data['esearchresult']['idlist'] ?? [];
-    
-    $count = 0;
-    foreach ($id_list as $id) {
-        $summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=$id&retmode=json";
-        $summary_data = json_decode(fetch_from_ncbi($summary_url), true);
-        
-        if (isset($summary_data['result'][$id])) {
-            $name_en = "Gene: " . $summary_data['result'][$id]['name'];
-            $summary_en = $summary_data['result'][$id]['summary'] ?? "No summary";
-
-            $name_ar = translate_to_arabic($name_en);
-            $summary_ar = translate_to_arabic(substr($summary_en, 0, 1000));
-
-            $check = mysqli_query($db, "SELECT id FROM terms WHERE term = '$name_en'");
-            if (mysqli_num_rows($check) == 0) {
-                $sql = "INSERT INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)";
-                $stmt = mysqli_prepare($db, $sql);
-                mysqli_stmt_bind_param($stmt, "sss", $name_en, $name_ar, $summary_ar);
-                if (mysqli_stmt_execute($stmt)) $count++;
-            }
-        }
-    }
-    $message = "<div class='alert alert-info'>🧬 تم جلب $count جينات جديدة عن ($query)!</div>";
-}
-
 ?>
 
 
@@ -358,7 +288,7 @@ if (isset($_SESSION['api_message'])) {
             <button name="fetch_and_analyze" type="submit" class="btn btn-primary btn-block">🚀 جلب وتحليل جين</button>
             <datalist id="geneSuggestions"></datalist>
         </form>
-        <div class="container mt-4">
+       <div class="container mt-4">
     <div class="row">
         <div class="col-md-6">
             <label>السلسلة الأولى (Seq 1):</label>
@@ -373,14 +303,31 @@ if (isset($_SESSION['api_message'])) {
     <div class="mt-3">
         <button class="btn btn-primary" onclick="generateSequences()">🔄 توليد سلاسل عشوائية</button>
         <button class="btn btn-success" onclick="alignSequences()">⚖️ إجراء محاذاة (Alignment)</button>
+        <button class="btn btn-info" onclick="analyzeSequencesWithNcbi()">🧬 تحليل ومطابقة السلاسل بـ NCBI</button>
     </div>
 
-    <div class="mt-4 alert alert-info" id="resultDiv" style="display:none;">
+    <div class="mt-4 alert alert-info" id="alignmentResultDiv" style="display:none;">
         <strong>نتيجة المحاذاة (نسبة التطابق):</strong> <span id="alignmentScore"></span><br>
         <pre id="alignmentDetails" class="mt-2"></pre>
     </div>
+
+    <div class="mt-4 alert alert-success" id="ncbiResultDiv" style="display:none;">
+        <h5>📊 نتيجة التحليل والمطابقة:</h5>
+        <hr>
+        <h6>السلسلة الأولى (Seq 1):</h6>
+        <p id="resultSeq1"></p>
+        <p><strong>التشخيص / الجين:</strong> <span id="disease1"></span> (نسبة الثقة: <span id="score1"></span>%)</p>
+        
+        <hr>
+        <h6>السلسلة الثانية (Seq 2):</h6>
+        <p id="resultSeq2"></p>
+        <p><strong>التشخيص / الجين:</strong> <span id="disease2"></span> (نسبة الثقة: <span id="score2"></span>%)</p>
+        
+        <button class="btn btn-dark mt-2" onclick="saveSelectedResults()">💾 حفظ النتيجة الفائزة في قاعدة البيانات</button>
+    </div>
 </div>
     <?php include('footer.php'); ?>
+
 <script>
 document.getElementById('geneSearchInput').addEventListener('input', function() {
     let query = this.value.trim();
@@ -402,6 +349,7 @@ document.getElementById('geneSearchInput').addEventListener('input', function() 
             });
         });
 });
+
 // جلب العدد الحالي عند تحميل الصفحة مباشرة
 let lastCount = <?php 
     $res = mysqli_query($db, "SELECT COUNT(id) as total FROM terms");
@@ -422,23 +370,24 @@ function checkNewTerms() {
         });
 }
 setInterval(checkNewTerms, 10000);
+
 const nucleotides = ['A', 'G', 'T', 'C'];
 
-// الزر الأول: توليد سلسلتين عشوائيتين بطول 20 قاعدة لكل منهما
+// الزر الأول: توليد سلسلتين عشوائيتين بطول بين 20 و 100 قاعدة
 function generateSequences() {
     let rndStr1 = '';
     let rndStr2 = '';
     
-    // توليد السلسلة الأولى عشوائياً
-    for (let i = 0; i < 20; i++) {
+   let randomLength1 = Math.floor(Math.random() * (3000 - 1000 + 1)) + 1000;
+    let randomLength2 = Math.floor(Math.random() * (3000 - 1000 + 1)) + 1000;
+    
+    for (let i = 0; i < randomLength1; i++) {
         rndStr1 += nucleotides[Math.floor(Math.random() * nucleotides.length)];
     }
-    // توليد السلسلة الثانية عشوائياً
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < randomLength2; i++) {
         rndStr2 += nucleotides[Math.floor(Math.random() * nucleotides.length)];
     }
 
-    // وضع القيم في التكست أريا
     document.getElementById('seq1').value = rndStr1;
     document.getElementById('seq2').value = rndStr2;
 }
@@ -453,7 +402,6 @@ function alignSequences() {
         return;
     }
 
-    // إرسال الطلب لمسار المقارنة في البايثون /compare-two-sequences/
     fetch('http://127.0.0.1:8000/compare-two-sequences/', {
         method: 'POST',
         headers: {
@@ -464,12 +412,120 @@ function alignSequences() {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            document.getElementById('resultDiv').style.display = 'block';
+            // تم تصحيح المعرف هنا إلى alignmentResultDiv
+            document.getElementById('alignmentResultDiv').style.display = 'block';
             document.getElementById('alignmentScore').innerText = data.alignment_score;
             document.getElementById('alignmentDetails').innerText = 
                 `السلسلة 1: ${data.sequence_1_aligned}\nالسلسلة 2: ${data.sequence_2_aligned}`;
         } else {
             alert("حدث خطأ: " + data.detail);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function compareWithNcbi() {
+    let ncbi = document.getElementById('ncbiSeq').value.trim();
+    let s1 = document.getElementById('seq1').value.trim();
+    let s2 = document.getElementById('seq2').value.trim();
+
+    if (!ncbi || !s1 || !s2) {
+        alert("الرجاء إدخال تسلسل NCBI وسلسلتي التكست أريا أولاً!");
+        return;
+    }
+
+    fetch('http://127.0.0.1:8000/compare-with-ncbi/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ncbi_seq: ncbi, seq1: s1, seq2: s2 })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.getElementById('alignmentResultDiv').style.display = 'block';
+            document.getElementById('score1').innerText = data.score_seq1;
+            document.getElementById('score2').innerText = data.score_seq2;
+            document.getElementById('closestResult').innerText = data.closest;
+        } else {
+            alert("حدث خطأ: " + data.detail);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function analyzeSequencesWithNcbi() {
+    let s1 = document.getElementById('seq1').value.trim();
+    let s2 = document.getElementById('seq2').value.trim();
+
+    if (!s1 || !s2) {
+        alert("الرجاء إدخال أو توليد السلسلتين أولاً!");
+        return;
+    }
+
+    fetch('http://127.0.0.1:8000/analyze-sequences/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ seq1: s1, seq2: s2 })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // تم تصحيح المعرف هنا إلى ncbiResultDiv
+            document.getElementById('ncbiResultDiv').style.display = 'block';
+            
+            document.getElementById('resultSeq1').innerText = data.seq1_analysis.sequence;
+            document.getElementById('disease1').innerText = data.seq1_analysis.associated_disease;
+            document.getElementById('score1').innerText = data.seq1_analysis.confidence_score;
+
+            document.getElementById('resultSeq2').innerText = data.seq2_analysis.sequence;
+            document.getElementById('disease2').innerText = data.seq2_analysis.associated_disease;
+            document.getElementById('score2').innerText = data.seq2_analysis.confidence_score;
+        } else {
+            alert("حدث خطأ: " + data.detail);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+let selectedFasta = "";
+let selectedDisease = "";
+let selectedScore = "";
+
+function saveSelectedResults() {
+    let score1 = parseFloat(document.getElementById('score1').innerText);
+    let score2 = parseFloat(document.getElementById('score2').innerText);
+
+    if (score1 >= score2) {
+        selectedFasta = document.getElementById('resultSeq1').innerText;
+        selectedDisease = document.getElementById('disease1').innerText;
+        selectedScore = score1;
+    } else {
+        selectedFasta = document.getElementById('resultSeq2').innerText;
+        selectedDisease = document.getElementById('disease2').innerText;
+        selectedScore = score2;
+    }
+
+    fetch('http://127.0.0.1:8000/save-term/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            fasta_seq: selectedFasta,
+            disease_class: selectedDisease,
+            confidence_score: selectedScore
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert("💾 تم حفظ النتيجة في قاعدة البيانات بنجاح!");
+        } else {
+            alert("حدث خطأ أثناء الحفظ: " + data.detail);
         }
     })
     .catch(error => console.error('Error:', error));
