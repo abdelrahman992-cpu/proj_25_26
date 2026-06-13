@@ -8,7 +8,8 @@ class TermSchema(BaseModel):
     term: str
     trans: str
     defe: str
-    # اجعل user_id اختيارياً أو احذفه إذا كنت لا ترسل القيمة من الـ PHP
+    smiles_code: Optional[str] = None  # يجب أن تكون موجودة
+    fasta_seq: Optional[str] = None    # يجب أن تكون موجودة
     user_id: Optional[int] = None
 
 class UserCreate(BaseModel):

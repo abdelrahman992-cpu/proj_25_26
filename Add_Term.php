@@ -141,7 +141,8 @@ $ch = curl_init('http://127.0.0.1:8000/analyze-gene/');
     header("Location: " . $_SERVER['PHP_SELF']);
     exit;
 }
-if (isset($_POST['import_hemophilia']) && $functions_ready) {
+
+if (isset($_POST['import_hemophilia'])) {
     $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=Hemophilia%20Gene%20Therapy&retmax=3&retmode=json";
     $search_res = fetch_from_ncbi($api_search);
     $search_data = json_decode($search_res, true);
@@ -155,38 +156,50 @@ if (isset($_POST['import_hemophilia']) && $functions_ready) {
             $t_en = (string)$xml->PubmedArticle->MedlineCitation->Article->ArticleTitle;
             $t_ar = translate_to_arabic($t_en);
             $term_name = "PMID: $id";
+            $abstract = "Research ID: " . $id;
             
-            $stmt = mysqli_prepare($db, "INSERT IGNORE INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)");
-            $abstract = "Research ID: " . $id; // ملخص مبدئي لتقليل الوقت
-            mysqli_stmt_bind_param($stmt, "sss", $term_name, $t_ar, $abstract);
-            if (mysqli_stmt_execute($stmt)) $count++;
+            // تجهيز البيانات لإرسالها للـ API
+            $data = [
+                'term'        => $term_name,
+                'trans'       => $t_ar,
+                'defe'        => $abstract,
+                'picture'     => 'pic/ncbi_logo.png',
+                'status'      => 'approved',
+                'user_id'     => 46,
+                'smiles_code' => 'N/A',
+                'fasta_seq'   => 'N/A'
+            ];
+
+            // استدعاء الـ API لحفظ البيانات (افترضنا المسار /terms أو المسار الخاص بك)
+            $result = callAPI("POST", "/terms/", $data); 
+            
+            if ($result && isset($result['status']) && $result['status'] == 'success') {
+                $count++;
+            }
         }
     }
     $message = "<div class='alert alert-danger'>🩸 تم استيراد $count أبحاث بنجاح!</div>";
 }
 
-// --- زر استيراد الجينات ---
-if (isset($_POST['import_genes']) && $functions_ready) {
-    $api_search = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=Human%20Gene&retmax=3&retmode=json";
-    $search_data = json_decode(fetch_from_ncbi($api_search), true);
-    $id_list = $search_data['esearchresult']['idlist'] ?? [];
-    
-    $count = 0;
-    foreach ($id_list as $id) {
-        $summary = json_decode(fetch_from_ncbi("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=$id&retmode=json"), true);
-        if (isset($summary['result'][$id])) {
-            $name = "Gene: " . $summary['result'][$id]['name'];
-            $ar_name = translate_to_arabic($name);
-            $desc = translate_to_arabic($summary['result'][$id]['description'] ?? "No desc");
-            
-            $stmt = mysqli_prepare($db, "INSERT IGNORE INTO terms (term, trans, defe, picture, status, user_id) VALUES (?, ?, ?, 'pic/ncbi_logo.png', 'approved', 46)");
-            mysqli_stmt_bind_param($stmt, "sss", $name, $ar_name, $desc);
-            if (mysqli_stmt_execute($stmt)) $count++;
-        }
-    }
-    $message = "<div class='alert alert-info'>🧬 تم جلب $count جينات!</div>";
-}
 
+
+// --- زر استيراد الجينات ---
+// في ملف الـ PHP، بدلاً من جلب البيانات يدوياً بـ curl من NCBI
+// كل ما عليك فعله هو طلب واحد بسيط للـ API الخاص بك في بايثون:
+
+if (isset($_POST['import_genes'])) {
+    // إرسال طلب واحد فقط للـ API ليقوم هو بكل شيء (جلب وحفظ)
+    $ch = curl_init('http://127.0.0.1:8000/api/import-ncbi/'); // أو المسار الذي قمت بإنشائه
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['accession_id' => 'NM_000059'])); // مثال
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    
+    $response = curl_exec($ch);
+    curl_close($ch);
+    
+    echo "تمت العملية: " . $response;
+}
 include("header.php");
 // باقي ملف الـ HTML يكمل هنا كما هو لديك
 include("validation.php");

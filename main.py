@@ -28,7 +28,7 @@ import os
 import pymysql
 import xml.etree.ElementTree as ET
 from chembl_webresource_client.new_client import new_client
-from models import Term  # أو من المكان الذي تعرف فيه جدول Terms في مشروعك (قد يكون from database import Term أو غيره)
+from models import Term  
 
 
 def get_db_connection():
@@ -75,53 +75,58 @@ app.add_middleware(
 )
 class AccessionRequest(BaseModel):
     accession_id: str
+#@app.post("/api/import-ncbi/")
+#def import_ncbi_via_api(req: AccessionRequest, db: Session = Depends(get_db)):
 @app.post("/api/import-ncbi/")
-def import_ncbi_via_api(req: AccessionRequest, db: Session = Depends(get_db)):
-    accession = req.accession_id.strip()
-    if not accession:
-        raise HTTPException(status_code=400, detail="يجب إدخال رقم Accession ID.")
-
-    # 1. جلب التسلسل من NCBI
-    ncbi_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id={accession}&rettype=fasta&retmode=text"
-    
+def import_ncbi_via_api(db: Session = Depends(get_db)):
     try:
-        response = requests.get(ncbi_url)
-        if response.status_code != 200 or not response.text:
-            raise HTTPException(status_code=404, detail="تعذر جلب التسلسل من NCBI.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ في الاتصال بـ NCBI: {str(e)}")
-
-    # 2. تنظيف التسلسل
-    lines = response.text.splitlines()
-    raw_seq = "".join([line.strip() for line in lines if not line.startswith(">")])
-    clean_sequence = raw_seq.strip().upper()
-
-    if not clean_sequence:
-        raise HTTPException(status_code=400, detail="التسلسل المسترجع فارغ أو غير صالح.")
-
-    # 3. حفظ البيانات في قاعدة البيانات باستخدام SQLAlchemy (نموذج Term الذي قمنا بتعديله)
-    try:
-        db_term = Term(
-            term=f"Accession: {accession}",
-            fasta_seq=clean_sequence,
-            disease_class="N/A - Genetic Sequence",
-            picture="pic/ncbi_logo.png",
+        # 1. البحث عن الجينات
+        search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=nuccore&term=Hemophilia&retmax=10&retmode=json"
+        search_res = requests.get(search_url, timeout=10).json()
+        
+        id_list = search_res.get('esearchresult', {}).get('idlist', [])
+        if not id_list:
+            return {"status": "error", "message": "لم يتم العثور على نتائج."}
+        
+        selected_id = random.choice(id_list)
+        
+        # 2. جلب البيانات (Fasta)
+        fasta_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id={selected_id}&rettype=fasta&retmode=text"
+        fasta_res = requests.get(fasta_url, timeout=10).text
+        
+        # استخراج العنوان والتسلسل
+        lines = fasta_res.splitlines()
+        header = lines[0] if lines else "Unknown Gene"
+        # تنظيف العنوان (إزالة علامة >)
+        clean_header = header.replace(">", "").strip()
+        
+        clean_sequence = "".join([line.strip() for line in lines if not line.startswith(">")])
+        
+        # 3. الحفظ في قاعدة البيانات
+        new_term = models.Term(
+            term=clean_header[:255],  # اسم الجين الحقيقي
+            trans=clean_header[:255], # يمكنك وضع العنوان هنا مبدئياً
+            defe=f"NCBI Accession ID: {selected_id}",
+            fasta_seq=clean_sequence,  # العمود الذي تستخدمه
+            sequence=clean_sequence,   # أضفنا هذا أيضاً احتياطياً
+            disease_class="Genetic Research",
             status="approved",
             user_id=46
         )
-        db.add(db_term)
+        
+        db.add(new_term)
         db.commit()
-        db.refresh(db_term)
-    except Exception as db_error:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"خطأ في حفظ البيانات بقاعدة البيانات: {str(db_error)}")
+        new_term.fasta_seq = clean_sequence # تحديث القيمة للقيمة الحقيقية
+        db.commit()
+        db.refresh(new_term)
+        
+        return {"status": "success", "imported_id": selected_id, "term": clean_header}
 
-    return {
-        "status": "success",
-        "message": "تم جلب التسلسل وحفظه بنجاح عبر الـ API.",
-        "accession_id": accession,
-        "sequence_length": len(clean_sequence)
-    }
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+
+
 @app.post("/analyze-gene/")
 def analyze_gene(payload: dict):
     gene_name = payload.get("gene_name", "").strip()
@@ -178,56 +183,59 @@ def translate_to_arabic(text: str) -> str:
 
 @app.post("/api/import-hemophilia/")
 def import_hemophilia_api(db: Session = Depends(get_db)):
-    # 1. البحث عن أبحاث الهيموفيليا في PubMed
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=Hemophilia+Gene+Therapy&retmax=3&retmode=json"
     
     try:
         search_res = requests.get(search_url).json()
         id_list = search_res.get("esearchresult", {}).get("idlist", [])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ في الاتصال بـ NCBI esearch: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"خطأ في الاتصال بـ NCBI: {str(e)}")
     
     count = 0
     for pmid in id_list:
-        fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
-        
-        try:
-            xml_response = requests.get(fetch_url)
-            if xml_response.status_code != 200:
-                continue
-            
-            # تحليل الـ XML
-            root = ET.fromstring(xml_response.text)
-            title_node = root.find(".//ArticleTitle")
-            t_en = title_node.text if title_node is not None else ""
-        except Exception:
+        # التحقق من وجود المصطلح قبل محاولة الجلب (لتجنب الطلبات غير الضرورية)
+        term_name = f"PMID: {pmid}"
+        if db.query(Term).filter(Term.term == term_name).first():
             continue
             
-        t_ar = translate_to_arabic(t_en)
-        term_name = f"PMID: {pmid}"
-        abstract = f"Research ID: {pmid}"
-        
-        # التحقق إذا كان السجل موجوداً مسبقاً (ما يعادل INSERT IGNORE)
-        existing_term = db.query(Term).filter(Term.term == term_name).first()
-        
-        if not existing_term:
+        fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
+        try:
+            xml_response = requests.get(fetch_url)
+            if xml_response.status_code != 200: continue
+            
+            root = ET.fromstring(xml_response.text)
+            title_node = root.find(".//ArticleTitle")
+            t_en = title_node.text if title_node is not None else "No Title"
+            
+            t_ar = translate_to_arabic(t_en)
+            abstract = f"Research ID: {pmid}"
+            
+            # إنشاء كائن Term مع الحقول كاملة
             new_term = Term(
                 term=term_name,
                 trans=t_ar,
                 defe=abstract,
                 picture="pic/ncbi_logo.png",
                 status="approved",
-                user_id=46
+                user_id=46,
+                smiles_code="N/A",      # الحقول الإضافية
+                fasta_seq="N/A",
+                disease_class="Genetic Research"
             )
             db.add(new_term)
-            db.commit()
             count += 1
-
+        except Exception:
+            continue
+            
+    # Commit واحد فقط بعد انتهاء الحلقة
+    db.commit()
+    
     return {
         "status": "success",
         "imported_count": count,
         "message": f"🩸 تم استيراد {count} أبحاث بنجاح!"
     }
+    
 @app.get("/suggest-genes/")
 def suggest_genes(term: str):
     if len(term) < 2:
@@ -306,21 +314,26 @@ def is_valid_dna(sequence):
     else:
         return False, "يحتوي التسلسل على أحرف غير صالحة (يجب أن يكون A, C, G, T فقط)."
 
-@router.post("/terms/")
-def add_term(data: dict):
-    # استلام التسلسل والتحقق منه أولاً
-    raw_sequence = data.get("fasta_seq", "")
-    is_valid, clean_or_error = is_valid_dna(raw_sequence)
+@app.post("/terms/")
+def add_term(term: schemas.TermSchema, 
+             db: Session = Depends(database.get_db), 
+             current_user: models.User = Depends(auth.get_current_user)):
     
-    if not is_valid:
-        # إيقاف التنفيذ وإرجاع رسالة خطأ للواجهة (Frontend)
-        raise HTTPException(status_code=400, detail=clean_or_error)
-        
-    # إذا كان التسلسل صحيحاً، نكمل باقي العمليات
-    # clean_seq هو التسلسل النظيف والمعالج لاستخدامه في BioPython
-    processed_sequence = clean_or_error 
+    # 1. تحويل البيانات القادمة من الـ Schema لقاموس
+    term_data = term.dict()
     
-    return {"status": "success", "clean_sequence": processed_sequence}
+    # 2. إضافة البيانات الخاصة بالنظام (التي لا يرسلها المستخدم)
+    term_data['user_id'] = current_user.id
+    term_data['status'] = 'pending'
+    
+    # 3. إنشاء الكائن وإرساله للـ DB مباشرة
+    new_term = models.Term(**term_data)
+    
+    db.add(new_term)
+    db.commit()
+    db.refresh(new_term) # ضروري عشان تجيب الـ ID اللي اتولد في القاعدة
+    
+    return {"message": "تمت إضافة المصطلح بنجاح، بانتظار موافقة المسؤول.", "term_id": new_term.id}
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -420,16 +433,33 @@ def add_term(term: schemas.TermSchema,
              db: Session = Depends(database.get_db), 
              current_user: models.User = Depends(auth.get_current_user)):
     
-    new_term = models.Term(
-        term=term.term,
-        trans=term.trans,
-        defe=term.defe,
-        status='pending',  # هنا نثبت أنها دائماً تحت المراجعة
-        user_id=current_user.id
-    )
-    db.add(new_term)
-    db.commit()
-    return {"message": "تمت إضافة المصطلح بنجاح، بانتظار موافقة المسؤول."}
+    # 1. تحويل البيانات لقاموس
+    term_data = term.dict()
+    
+    # 2. تعيين قيم افتراضية للحقول التي لا يرسلها المستخدم
+    term_data.setdefault("smiles_code", "N/A")
+    term_data.setdefault("fasta_seq", "N/A")
+    term_data.setdefault("disease_class", "Genetic Research")
+    
+    # 3. بيانات النظام
+    term_data['user_id'] = current_user.id
+    term_data['status'] = 'pending'
+    
+    # 4. إنشاء الكائن
+    new_term = models.Term(**term_data)
+    
+    try:
+        db.add(new_term)
+        db.commit()
+        db.refresh(new_term)
+    except Exception as e:
+        db.rollback()
+        # هنا ستعرف لماذا لا يضيف! اطبع الخطأ في التيرمنال
+        print("Database Error:", e) 
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return {"message": "تمت الإضافة بنجاح", "term_id": new_term.id}
+    
 @app.put("/terms/approve/{term_id}")
 def approve_term(term_id: int, 
                  db: Session = Depends(database.get_db), 
@@ -572,17 +602,18 @@ def verify_otp(email: str, code: str, db: Session = Depends(database.get_db)):
     db.commit()
     
     return {"status": "success", "message": "تم التحقق بنجاح"}
-@app.get("/terms/")
+@app.get("/terms/uu/")
 def get_terms(term_id: Optional[int] = None, db: Session = Depends(database.get_db)):
+    # 1. إذا تم طلب ID محدد
     if term_id is not None:
-        # جلب مصطلح محدد
         term = db.query(models.Term).filter(models.Term.id == term_id).first()
         if not term:
             raise HTTPException(status_code=404, detail="المصطلح غير موجود")
         return term
     
-    # جلب الكل إذا لم يتم تمرير ID
-    return db.query(models.Term).all()
+    # 2. إذا تم طلب الكل، مع التصفية والترتيب (بدون دالة مكررة)
+    terms = db.query(models.Term).filter(models.Term.status != 'rejected').order_by(models.Term.id.desc()).all()
+    return terms
 
 # دالة المصطلحات العامة (الموافق عليها فقط)
 @app.get("/terms/public/")
@@ -808,7 +839,7 @@ def get_terms_count(db: Session = Depends(get_db)):
     return {"total": count}
 @app.get("/terms/")
 def get_all_terms(db: Session = Depends(get_db)):
-    # جلب البيانات التي حالتها ليست مرفوضة
+
     terms = db.query(models.Term).filter(models.Term.status != 'rejected').order_by(models.Term.id.desc()).all()
     return terms
     # من ملف DNAToolKit.py المرفق في مستندك
@@ -1056,10 +1087,11 @@ def add_drug_via_api(req: DrugRequest, db: Session = Depends(get_db)):
             trans=name_en,
             defe=description,
             smiles_code=smiles,
-            fasta_seq="N/A", # الحقل الخاص بالـ DNA نجعله N/A هنا
             picture="pic/chembl_logo.png",
             status="approved",
-            user_id=46
+            user_id=46,
+            fasta_seq=clean_sequence, # <--- هنا يتم الحفظ
+            disease_class="Hemophilia Related"
         )
         db.add(db_term)
         db.commit()
@@ -1074,6 +1106,24 @@ def add_drug_via_api(req: DrugRequest, db: Session = Depends(get_db)):
         "drug_name": name_en,
         "smiles": smiles
     }
+
+class TermCreate(BaseModel):
+    term: str
+    trans: str
+    defe: str
+    user_id: int
+    
+    # حقول اختيارية بقيم افتراضية لتجنب الأخطاء
+    smiles_code: Optional[str] = "N/A"
+    picture: Optional[str] = "yyy.jpg"
+    status: Optional[str] = "pending"
+    sequence: Optional[str] = None
+    fasta_seq: Optional[str] = None
+    disease_class: Optional[str] = None
+    confidence_score: Optional[float] = None
+
+
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

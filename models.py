@@ -39,7 +39,7 @@ class Section(Base):
 class Term(Base):
     __tablename__ = "terms"
     id = Column(Integer, primary_key=True, index=True)
-    term = Column(String(50), nullable=False)
+    term = Column(Text, nullable=False)
     trans = Column(Text)
     defe = Column(Text)
     smiles_code = Column(Text)
@@ -50,6 +50,7 @@ class Term(Base):
     fasta_seq = Column(Text, nullable=True)
     disease_class = Column(String(255), nullable=True)
     confidence_score = Column(DECIMAL(5, 2), nullable=True)
+    created_at = Column("add_date", DateTime, server_default=func.now())
 class OTP(Base):
     __tablename__ = "otp_codes"
     id = Column(Integer, primary_key=True)
